@@ -163,7 +163,12 @@ public class BatteryOptimizerWorker(
     private HttpClient CreateHaClient()
     {
         var client = httpClientFactory.CreateClient();
-        string baseUrl = config["HomeAssistant:BaseUrl"] ?? "http://supervisor/core/";
+        string baseUrl = config["HomeAssistant:BaseUrl"] ?? "http://supervisor/core";
+        if (!baseUrl.EndsWith('/'))
+        {
+            baseUrl += "/";
+        }
+
         string token = config["HomeAssistant:Token"] ?? throw new InvalidOperationException("HomeAssistant:Token is missing.");
 
         client.BaseAddress = new Uri(baseUrl);
@@ -171,6 +176,7 @@ public class BatteryOptimizerWorker(
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
+
 
     private static async Task<string> GetEntityStateAsync(HttpClient client, string entityId, CancellationToken ct)
     {
