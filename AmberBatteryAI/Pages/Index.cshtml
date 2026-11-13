@@ -189,25 +189,40 @@
             
         </div>
 
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">AI Strategy Reasoning</div>
-            <div class="value" id="mode">--</div>
-            <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
+            <div class="card" style="margin-bottom: 16px;">
+                <div class="label">AI Strategy Reasoning</div>
+                <div class="value" id="mode">--</div>
+                <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
+            </div>
+
+            <div class="card" style="margin-bottom: 16px;">
+                <div class="label">Custom AI Prompt</div>
+                <button id="editPromptBtn" type="button" onclick="showPromptEditor()">Edit Custom Prompt</button>
+                <div id="promptEditorContainer" style="display: none; margin-top: 12px;">
+                    <textarea id="customPromptTextarea" style="width: 100%; min-height: 300px; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; color: var(--text); background: var(--card); border: 1px solid var(--muted); resize: vertical;"></textarea>
+                    <div style="margin-top: 8px; display: flex; gap: 8px;">
+                        <button type="button" onclick="saveCustomPrompt()" style="background: var(--green);">Save Custom Prompt</button>
+                        <button type="button" onclick="loadDefaultPrompt()" style="background: var(--gold);">Load Default Prompt</button>
+                        <button type="button" onclick="hidePromptEditor()">Cancel</button>
+                    </div>
+                </div>
+                <div id="promptStatus" style="margin-top: 8px; font-size: 0.9rem; color: var(--muted);">--</div>
+            </div>
+
+            <div class="card" style="margin-bottom: 16px;">
+                <div class="label">Latest AI Prompt Sent</div>
+                <pre class="prompt" id="prompt">Waiting for first optimization cycle...</pre>
+            </div>
+
+            <div class="card">
+                <div class="label">Latest Telemetry Snapshot</div>
+                <div class="sub" id="telemetry" style="color: var(--text); line-height: 1.6;">--</div>
+            </div>
         </div>
 
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Latest AI Prompt</div>
-            <pre class="prompt" id="prompt">Waiting for first optimization cycle...</pre>
-        </div>
-
-        <div class="card">
-            <div class="label">Latest Telemetry Snapshot</div>
-            <div class="sub" id="telemetry" style="color: var(--text); line-height: 1.6;">--</div>
-        </div>
-    </div>
-
-    <script>
-        let nextRunIso = null;
+        <script>
+            let nextRunIso = null;
+            let defaultPromptTemplate = null;
 
         async function refreshStatus() {
             try {
@@ -265,6 +280,64 @@
             const mins = Math.floor(diffMs / 60000);
             const secs = Math.floor((diffMs % 60000) / 1000);
             document.getElementById('countdown').textContent = String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's';
+        }
+
+        function showPromptEditor() {
+            document.getElementById('promptEditorContainer').style.display = 'block';
+            loadCurrentCustomPrompt();
+        }
+
+        function hidePromptEditor() {
+            document.getElementById('promptEditorContainer').style.display = 'none';
+        }
+
+        async function loadCurrentCustomPrompt() {
+            try {
+                const res = await fetch('api/prompt');
+                const data = await res.json();
+                document.getElementById('customPromptTextarea').value = data.customPrompt || '';
+            } catch (e) {
+                console.error('Failed to load custom prompt:', e);
+                document.getElementById('promptStatus').textContent = 'Error loading prompt';
+                document.getElementById('promptStatus').style.color = 'var(--red)';
+            }
+        }
+
+        async function saveCustomPrompt() {
+            const customPrompt = document.getElementById('customPromptTextarea').value.trim();
+            if (!customPrompt) {
+                document.getElementById('promptStatus').textContent = 'Prompt cannot be empty';
+                document.getElementById('promptStatus').style.color = 'var(--red)';
+                return;
+            }
+
+            try {
+                const res = await fetch('api/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customPrompt })
+                });
+
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+
+                document.getElementById('promptStatus').textContent = 'Custom prompt saved! It will be used on the next optimization cycle.';
+                document.getElementById('promptStatus').style.color = 'var(--green)';
+                hidePromptEditor();
+            } catch (e) {
+                console.error('Failed to save custom prompt:', e);
+                document.getElementById('promptStatus').textContent = 'Error saving prompt: ' + e.message;
+                document.getElementById('promptStatus').style.color = 'var(--red)';
+            }
+        }
+
+        async function loadDefaultPrompt() {
+            // Provide a hint for the default prompt structure
+            const hint = '(Loading default prompt structure - this would be the built-in prompt if custom prompt is cleared)\n\nTo use the default prompt, clear the text and click "Save Custom Prompt" with an empty field, or refresh the page.';
+            document.getElementById('customPromptTextarea').value = hint;
+            document.getElementById('promptStatus').textContent = 'Clear the text and save to use the default prompt.';
+            document.getElementById('promptStatus').style.color = 'var(--muted)';
         }
 
         async function triggerRun() {

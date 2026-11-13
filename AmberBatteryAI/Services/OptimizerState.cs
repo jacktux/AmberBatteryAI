@@ -1,4 +1,5 @@
 using AmberBatteryAI.Models;
+using AmberBatteryAI.Models;
 
 namespace AmberBatteryAI.Services;
 
@@ -6,6 +7,7 @@ public class OptimizerState
 {
     private readonly object _lock = new();
     private CancellationTokenSource _delayCts = new();
+    private readonly PromptStorageService _promptStorage;
 
     public bool IsRunning { get; private set; }
     public DateTimeOffset? LastRunUtc { get; private set; }
@@ -14,7 +16,15 @@ public class OptimizerState
     public string? TelemetrySummary { get; private set; }
     public string? Prompt { get; private set; }
     public string? GridStatus { get; private set; }
+    public string? CustomPrompt { get; private set; }
     public AppliedDecision? Decision { get; private set; }
+
+    public OptimizerState(PromptStorageService promptStorage)
+    {
+        _promptStorage = promptStorage;
+        // Load persisted prompt on startup
+        CustomPrompt = _promptStorage.LoadPrompt();
+    }
 
     public void SetRunning(bool running)
     {
@@ -29,6 +39,21 @@ public class OptimizerState
     public void SetGridStatus(string gridStatus)
     {
         lock (_lock) GridStatus = gridStatus;
+    }
+
+    public void SetCustomPrompt(string? customPrompt)
+    {
+        lock (_lock)
+        {
+            CustomPrompt = customPrompt;
+        }
+        // Persist to file outside the lock to avoid long-running I/O in critical section
+        _promptStorage.SavePrompt(customPrompt);
+    }
+
+    public string? GetCustomPrompt()
+    {
+        lock (_lock) return CustomPrompt;
     }
 
     public void RecordSuccess(
@@ -94,6 +119,7 @@ public class OptimizerState
                 TelemetrySummary,
                 Prompt,
                 GridStatus,
+                CustomPrompt,
                 Decision);
         }
     }

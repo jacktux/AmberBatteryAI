@@ -26,12 +26,13 @@ public record AppliedDecision(
 );
 
 public record StatusSnapshot(
-    bool IsRunning,
-    DateTimeOffset? LastRunUtc,
-    DateTimeOffset? NextRunUtc,
-    string? LastError,
-    string? TelemetrySummary,
-    string? Prompt,
-    string? GridStatus,
-    AppliedDecision? Decision
+     bool IsRunning,
+     DateTimeOffset? LastRunUtc,
+     DateTimeOffset? NextRunUtc,
+     string? LastError,
+     string? TelemetrySummary,
+     string? Prompt,
+     string? GridStatus,
+     string? CustomPrompt,
+     AppliedDecision? Decision
 );
