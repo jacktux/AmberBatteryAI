@@ -1,0 +1,21 @@
+﻿name: "Amber Battery AI"
+version: "1.0.0"
+slug: "amberbatteryai"
+description: "Amber Battery AI"
+arch:
+  - amd64
+  - aarch64
+ingress: true
+ingress_port: 9810
+ingress_path: "/"
+panel_icon: "mdi:language-csharp"
+panel_title: "Amber Battery"
+ports:
+  9801/tcp: 9801
+environment:
+  SUPERVISOR_URL: "http://supervisor/core/"
+  TZ: "UTC"
+homeassistant_api: true
+auth_api: true
+hassio_api: true
+hassio_role: admin
