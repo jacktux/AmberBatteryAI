@@ -180,7 +180,7 @@ public class BatteryOptimizerWorker(
 
     private static async Task<string> GetEntityStateAsync(HttpClient client, string entityId, CancellationToken ct)
     {
-        var json = await client.GetFromJsonAsync<JsonElement>($"/api/states/{entityId}", ct);
+        var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
         return json.GetProperty("state").GetString() ?? "unknown";
     }
 
@@ -188,7 +188,7 @@ public class BatteryOptimizerWorker(
     {
         try
         {
-            var json = await client.GetFromJsonAsync<JsonElement>($"/api/states/{entityId}", ct);
+            var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
             string state = json.GetProperty("state").GetString() ?? "unknown";
             string unit = json.TryGetProperty("attributes", out var attrs) &&
                           attrs.TryGetProperty("unit_of_measurement", out var u)
@@ -205,7 +205,7 @@ public class BatteryOptimizerWorker(
 
     private static async Task<string> GetCompactAmberForecastAsync(HttpClient client, string entityId, int hoursAhead, CancellationToken ct)
     {
-        var json = await client.GetFromJsonAsync<JsonElement>($"/api/states/{entityId}", ct);
+        var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
         string currentState = json.GetProperty("state").GetString() ?? "unknown";
 
         if (!json.TryGetProperty("attributes", out var attrs))
@@ -278,7 +278,7 @@ public class BatteryOptimizerWorker(
     {
         try
         {
-            var stateJson = await client.GetFromJsonAsync<JsonElement>($"/api/states/{entityId}", ct);
+            var stateJson = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
             string currentCondition = stateJson.GetProperty("state").GetString() ?? "unknown";
             double currentTemp = stateJson.TryGetProperty("attributes", out var attrs) &&
                                  attrs.TryGetProperty("temperature", out var t) && t.TryGetDouble(out var tv)
@@ -294,7 +294,7 @@ public class BatteryOptimizerWorker(
                 type = "hourly"
             };
 
-            var response = await client.PostAsJsonAsync("/api/services/weather/get_forecasts?return_response=true", payload, ct);
+            var response = await client.PostAsJsonAsync("api/services/weather/get_forecasts?return_response=true", payload, ct);
             if (!response.IsSuccessStatusCode)
                 return currentHeader;
 
@@ -355,7 +355,7 @@ public class BatteryOptimizerWorker(
     private static async Task SetInputNumberAsync(HttpClient client, string entityId, double value, CancellationToken ct)
     {
         var payload = new { entity_id = entityId, value };
-        var response = await client.PostAsJsonAsync("/api/services/input_number/set_value", payload, ct);
+        var response = await client.PostAsJsonAsync("api/services/input_number/set_value", payload, ct);
         response.EnsureSuccessStatusCode();
     }
 
@@ -363,7 +363,7 @@ public class BatteryOptimizerWorker(
     {
         try
         {
-            var json = await client.GetFromJsonAsync<JsonElement>($"/api/states/{entityId}", ct);
+            var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
             string remainingKwh = json.GetProperty("state").GetString() ?? "unknown";
 
             if (!json.TryGetProperty("attributes", out var attrs) ||
