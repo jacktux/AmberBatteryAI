@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.0.4"
+version: "1.0.5"
 slug: amber_battery_ai
 init: false
 arch:
@@ -20,11 +20,13 @@ options:
   battery_soc_entity: "sensor.la_electrical_battery_soc"
   battery_power_entity: "sensor.la_electrical_battery_power"
   home_power_entity: "sensor.la_sigenstor1_home_power"
+  grid_status_entity: "sensor.la_sigenstor_1_grid_status"
   battery_capacity_kwh: 16.0
   general_price_entity: "sensor.amber_express_home_general_price"
   feed_in_price_entity: "sensor.amber_express_home_feed_in_price"
   weather_entity: "weather.welby_hourly"
   solar_forecast_entity: "sensor.solcast_pv_forecast_forecast_today"
+  solar_forecast_remaining_entity: "sensor.solcast_pv_forecast_forecast_remaining_today"
   interval_minutes: 30
   forecast_hours: 12
   min_export_price: 0.15
@@ -43,11 +45,13 @@ schema:
   battery_soc_entity: str
   battery_power_entity: str
   home_power_entity: str
+  grid_status_entity: str
   battery_capacity_kwh: float
   general_price_entity: str
   feed_in_price_entity: str
   weather_entity: str
   solar_forecast_entity: str
+  solar_forecast_remaining_entity: str
   interval_minutes: int(5,120)
   forecast_hours: int(4,24)
   min_export_price: float
