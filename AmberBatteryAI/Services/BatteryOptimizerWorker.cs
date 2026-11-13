@@ -163,7 +163,7 @@ public class BatteryOptimizerWorker(
     private HttpClient CreateHaClient()
     {
         var client = httpClientFactory.CreateClient();
-        string baseUrl = config["HomeAssistant:BaseUrl"] ?? "http://supervisor/core";
+        string baseUrl = config["HomeAssistant:BaseUrl"] ?? "http://supervisor/core/";
         string token = config["HomeAssistant:Token"] ?? throw new InvalidOperationException("HomeAssistant:Token is missing.");
 
         client.BaseAddress = new Uri(baseUrl);

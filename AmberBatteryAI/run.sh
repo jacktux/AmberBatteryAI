@@ -3,7 +3,7 @@ set -e
 
 OPTIONS_FILE="/data/options.json"
 
-export HomeAssistant__BaseUrl="http://supervisor/core"
+export HomeAssistant__BaseUrl="http://supervisor/core/"
 export HomeAssistant__Token="${SUPERVISOR_TOKEN}"
 
 if [ -f "$OPTIONS_FILE" ]; then
