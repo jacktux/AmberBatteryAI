@@ -15,7 +15,7 @@ panel_icon: mdi:battery-charging-high
 panel_title: Battery AI
 options:
   ai_provider_endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-  ai_api_key: "AQ.Ab8RN6KxgPCgJhKZeZjmXb2IVYTw8TKIGHfRhc_FUUxSIL-eKQ"
+  ai_api_key: ""
   ai_model: "gemini-3.5-flash-lite"
   battery_soc_entity: "sensor.la_electrical_battery_soc"
   battery_power_entity: "sensor.la_electrical_battery_power"
