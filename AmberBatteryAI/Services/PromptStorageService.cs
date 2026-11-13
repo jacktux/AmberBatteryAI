@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace AmberBatteryAI.Services;
@@ -16,13 +17,43 @@ public class PromptStorageService
     {
         _logger = logger;
 
-        // Use standard data directory
-        string dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "AmberBatteryAI");
+        // Use a data directory appropriate for the environment
+        string dataDir;
 
-        Directory.CreateDirectory(dataDir);
+        // Check if running in a container/Home Assistant environment
+        if (Directory.Exists("/data"))
+        {
+            // Home Assistant add-on data directory
+            dataDir = "/data/amber-battery-ai";
+        }
+        else if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Production" && 
+                 !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // Linux production environment (not Home Assistant)
+            dataDir = "/var/lib/amber-battery-ai";
+        }
+        else
+        {
+            // Development or Windows
+            dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "AmberBatteryAI");
+        }
+
+        // Create directory safely
+        try
+        {
+            Directory.CreateDirectory(dataDir);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create data directory {DataDir}, using temp directory", dataDir);
+            dataDir = Path.Combine(Path.GetTempPath(), "AmberBatteryAI");
+            Directory.CreateDirectory(dataDir);
+        }
+
         _filePath = Path.Combine(dataDir, "prompt_storage.json");
+        _logger.LogInformation("Prompt storage path: {FilePath}", _filePath);
     }
 
     /// <summary>
