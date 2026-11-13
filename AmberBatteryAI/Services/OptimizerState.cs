@@ -12,6 +12,8 @@ public class OptimizerState
     public DateTimeOffset? NextRunUtc { get; private set; }
     public string? LastError { get; private set; }
     public string? TelemetrySummary { get; private set; }
+    public string? Prompt { get; private set; }
+    public string? GridStatus { get; private set; }
     public AppliedDecision? Decision { get; private set; }
 
     public void SetRunning(bool running)
@@ -24,7 +26,15 @@ public class OptimizerState
         lock (_lock) NextRunUtc = nextRunUtc;
     }
 
-    public void RecordSuccess(AppliedDecision decision, string telemetrySummary)
+    public void SetGridStatus(string gridStatus)
+    {
+        lock (_lock) GridStatus = gridStatus;
+    }
+
+    public void RecordSuccess(
+        AppliedDecision decision,
+        string telemetrySummary,
+        string prompt)
     {
         lock (_lock)
         {
@@ -32,6 +42,7 @@ public class OptimizerState
             LastError = null;
             Decision = decision;
             TelemetrySummary = telemetrySummary;
+            Prompt = prompt;
         }
     }
 
@@ -53,7 +64,10 @@ public class OptimizerState
                 _delayCts.Dispose();
                 _delayCts = new CancellationTokenSource();
             }
-            return CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _delayCts.Token).Token;
+
+            return CancellationTokenSource.CreateLinkedTokenSource(
+                stoppingToken,
+                _delayCts.Token).Token;
         }
     }
 
@@ -78,8 +92,9 @@ public class OptimizerState
                 NextRunUtc,
                 LastError,
                 TelemetrySummary,
-                Decision
-            );
+                Prompt,
+                GridStatus,
+                Decision);
         }
     }
 }

@@ -56,26 +56,39 @@ public class BatteryOptimizerWorker(
         string socEntity = config["HomeAssistant:BatterySocEntity"] ?? "sensor.la_electrical_battery_soc";
         string batteryPowerEntity = config["HomeAssistant:BatteryPowerEntity"] ?? "sensor.la_electrical_battery_power";
         string homePowerEntity = config["HomeAssistant:HomePowerEntity"] ?? "sensor.la_sigenstor1_home_power";
+        string gridStatusEntity = config["HomeAssistant:GridStatusEntity"] ?? "sensor.la_sigenstor_1_grid_status";
         double batteryCapacityKwh = config.GetValue("HomeAssistant:BatteryCapacityKwh", 16.0);
 
         string generalEntity = config["HomeAssistant:GeneralPriceEntity"] ?? "sensor.amber_express_home_general_price";
         string feedInEntity = config["HomeAssistant:FeedInPriceEntity"] ?? "sensor.amber_express_home_feed_in_price";
         string weatherEntity = config["HomeAssistant:WeatherEntity"] ?? "weather.welby_hourly";
-        string? solarEntity = config["HomeAssistant:SolarForecastEntity"];
+        string solarEntity = config["HomeAssistant:SolarForecastEntity"] ?? "sensor.solcast_pv_forecast_forecast_today";
+        string remainingSolarEntity = config["HomeAssistant:SolarForecastRemainingEntity"] ?? "sensor.solcast_pv_forecast_forecast_remaining_today";
 
         var soc = await GetEntityStateAsync(haClient, socEntity, ct);
         var batteryPower = await GetEntityStateWithUnitAsync(haClient, batteryPowerEntity, ct);
         var homePower = await GetEntityStateWithUnitAsync(haClient, homePowerEntity, ct);
+        var gridStatus = await GetEntityStateAsync(haClient, gridStatusEntity, ct);
+        state.SetGridStatus(gridStatus);
+
+        if (!string.Equals(gridStatus.Trim(), "On grid", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogInformation(
+                "Skipping AI optimization because grid status is {GridStatus}.",
+                gridStatus);
+            return;
+        }
 
         var generalSummary = await GetCompactAmberForecastAsync(haClient, generalEntity, forecastHours, ct);
         var feedInSummary = await GetCompactAmberForecastAsync(haClient, feedInEntity, forecastHours, ct);
         var weatherSummary = await GetCompactWeatherAsync(haClient, weatherEntity, forecastHours, ct);
 
-        string solarSummary = "Not configured";
-        if (!string.IsNullOrWhiteSpace(solarEntity))
-        {
-            solarSummary = await GetCompactSolcastForecastAsync(haClient, solarEntity, forecastHours, ct);
-        }
+        string solarSummary = await GetCompactSolcastForecastAsync(
+            haClient,
+            solarEntity,
+            remainingSolarEntity,
+            forecastHours,
+            ct);
 
         string kwhBudgetSummary = "Unknown";
         if (double.TryParse(soc, out double socPct))
@@ -105,6 +118,7 @@ public class BatteryOptimizerWorker(
             - Battery SOC & Energy Budget: {{soc}}% ({{kwhBudgetSummary}})
             - Current Battery Power Flow: {{batteryPower}}
             - Current House Load: {{homePower}}
+            - Grid Connection Status: {{gridStatus}}
             - General Import Price & Forecast: {{generalSummary}}
             - Feed-in Export Price & Forecast: {{feedInSummary}}
             - Weather Outlook: {{weatherSummary}}
@@ -155,9 +169,16 @@ public class BatteryOptimizerWorker(
 
         string telemetrySnapshot = $"SOC: {soc}% ({kwhBudgetSummary}) | Battery: {batteryPower} | Home: {homePower} | Solar: {solarSummary}";
         state.RecordSuccess(
-            new AppliedDecision(safeExportPrice, safeExportStopSoc, safeExportLimit, safeImportPrice, safeImportStopSoc, safeImportLimit, decision.Reasoning),
-            telemetrySnapshot
-        );
+            new AppliedDecision(
+                safeExportPrice,
+                safeExportStopSoc,
+                safeExportLimit,
+                safeImportPrice,
+                safeImportStopSoc,
+                safeImportLimit,
+                decision.Reasoning),
+            telemetrySnapshot,
+            prompt);
     }
 
     private HttpClient CreateHaClient()
@@ -359,14 +380,20 @@ public class BatteryOptimizerWorker(
         response.EnsureSuccessStatusCode();
     }
 
-    private static async Task<string> GetCompactSolcastForecastAsync(HttpClient client, string entityId, int hoursAhead, CancellationToken ct)
+    private static async Task<string> GetCompactSolcastForecastAsync(
+        HttpClient client,
+        string forecastEntityId,
+        string remainingEntityId,
+        int hoursAhead,
+        CancellationToken ct)
     {
         try
         {
-            var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
-            string remainingKwh = json.GetProperty("state").GetString() ?? "unknown";
+            var forecastJson = await client.GetFromJsonAsync<JsonElement>($"api/states/{forecastEntityId}", ct);
+            var remainingJson = await client.GetFromJsonAsync<JsonElement>($"api/states/{remainingEntityId}", ct);
+            string remainingKwh = remainingJson.GetProperty("state").GetString() ?? "unknown";
 
-            if (!json.TryGetProperty("attributes", out var attrs) ||
+            if (!forecastJson.TryGetProperty("attributes", out var attrs) ||
                 !attrs.TryGetProperty("detailedForecast", out var forecastArray) ||
                 forecastArray.ValueKind != JsonValueKind.Array)
             {

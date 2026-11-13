@@ -65,9 +65,15 @@
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 16px;
             margin-bottom: 16px;
+        }
+
+        @@media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .card {
@@ -122,6 +128,28 @@
             border-radius: 8px;
             margin-bottom: 16px;
         }
+
+        pre.prompt {
+            background: #111322;
+            color: #c8d2e6;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .prompt {
+            color: var(--text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin: 0;
+            max-height: 500px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
@@ -140,6 +168,12 @@
                 <div class="sub" id="scheduleTimes">Loading schedule...</div>
             </div>
 
+            <div class="card schedule">
+                <div class="label">Grid Status</div>
+                <div class="value" id="gridStatus">--</div>
+                <div class="sub">AI optimization runs only when on grid</div>
+            </div>
+
             <div class="card export">
                 <div class="label">Export Thresholds</div>
                 <div class="value" id="exportMain">--</div>
@@ -151,11 +185,18 @@
                 <div class="value" id="importMain">--</div>
                 <div class="sub" id="importSub">Stop SOC: -- | Limit: --</div>
             </div>
+
+            
         </div>
 
         <div class="card" style="margin-bottom: 16px;">
             <div class="label">AI Strategy Reasoning</div>
             <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="label">Latest AI Prompt</div>
+            <pre class="prompt" id="prompt">Waiting for first optimization cycle...</pre>
         </div>
 
         <div class="card">
@@ -188,6 +229,7 @@
                 const lastStr = data.lastRunUtc ? new Date(data.lastRunUtc).toLocaleTimeString() : 'Never';
                 const nextStr = data.nextRunUtc ? new Date(data.nextRunUtc).toLocaleTimeString() : '--';
                 document.getElementById('scheduleTimes').textContent = 'Last run: ' + lastStr + ' | Next: ' + nextStr;
+                document.getElementById('gridStatus').textContent = data.gridStatus || 'Unknown';
 
                 if (data.decision) {
                     document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
@@ -201,6 +243,10 @@
 
                 if (data.telemetrySummary) {
                     document.getElementById('telemetry').textContent = data.telemetrySummary;
+                }
+
+                if (data.prompt) {
+                    document.getElementById('prompt').textContent = data.prompt;
                 }
             } catch (e) {
                 console.error(e);

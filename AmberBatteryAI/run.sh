@@ -14,11 +14,13 @@ if [ -f "$OPTIONS_FILE" ]; then
   export HomeAssistant__BatterySocEntity=$(jq -r '.battery_soc_entity' "$OPTIONS_FILE")
   export HomeAssistant__BatteryPowerEntity=$(jq -r '.battery_power_entity' "$OPTIONS_FILE")
   export HomeAssistant__HomePowerEntity=$(jq -r '.home_power_entity' "$OPTIONS_FILE")
+  export HomeAssistant__GridStatusEntity=$(jq -r '.grid_status_entity' "$OPTIONS_FILE")
   export HomeAssistant__BatteryCapacityKwh=$(jq -r '.battery_capacity_kwh' "$OPTIONS_FILE")
   export HomeAssistant__GeneralPriceEntity=$(jq -r '.general_price_entity' "$OPTIONS_FILE")
   export HomeAssistant__FeedInPriceEntity=$(jq -r '.feed_in_price_entity' "$OPTIONS_FILE")
   export HomeAssistant__WeatherEntity=$(jq -r '.weather_entity' "$OPTIONS_FILE")
   export HomeAssistant__SolarForecastEntity=$(jq -r '.solar_forecast_entity' "$OPTIONS_FILE")
+  export HomeAssistant__SolarForecastRemainingEntity=$(jq -r '.solar_forecast_remaining_entity' "$OPTIONS_FILE")
 
   export Optimizer__IntervalMinutes=$(jq -r '.interval_minutes' "$OPTIONS_FILE")
   export Optimizer__ForecastHours=$(jq -r '.forecast_hours' "$OPTIONS_FILE")

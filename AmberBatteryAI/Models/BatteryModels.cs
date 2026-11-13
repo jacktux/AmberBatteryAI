@@ -28,5 +28,7 @@ public record StatusSnapshot(
     DateTimeOffset? NextRunUtc,
     string? LastError,
     string? TelemetrySummary,
+    string? Prompt,
+    string? GridStatus,
     AppliedDecision? Decision
 );
