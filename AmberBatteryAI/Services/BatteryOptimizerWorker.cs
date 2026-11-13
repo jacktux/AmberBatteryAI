@@ -81,13 +81,14 @@ public class BatteryOptimizerWorker(
 
         var generalSummary = await GetCompactAmberForecastAsync(haClient, generalEntity, forecastHours, ct);
         var feedInSummary = await GetCompactAmberForecastAsync(haClient, feedInEntity, forecastHours, ct);
-        var weatherSummary = await GetCompactWeatherAsync(haClient, weatherEntity, forecastHours, ct);
+        var weatherSummary = await GetCompactWeatherAsync(haClient, weatherEntity, forecastHours, logger, ct);
 
         string solarSummary = await GetCompactSolcastForecastAsync(
             haClient,
             solarEntity,
             remainingSolarEntity,
             forecastHours,
+            logger,
             ct);
 
         string kwhBudgetSummary = "Unknown";
@@ -123,14 +124,14 @@ public class BatteryOptimizerWorker(
         //    - Feed-in Export Price & Forecast: {{feedInSummary}}
         //    - Weather Outlook: {{weatherSummary}}
         //    - Solar Forecast (Solcast): {{solarSummary}}
-        //    """;
+        //    """; {{forecastHours}}
         string prompt = $$"""
             You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
 
             Your objective is to maximize net financial profit in AUD over the next {{forecastHours}} hours while:
             - Accounting for approximately 10% round-trip battery and inverter losses.
             - Accounting for a battery degradation cost of $0.05/kWh.
-            - Maintaining enough energy for household consumption.
+            - Maintaining enough energy for household consumption, specifically targeting ~60% SOC by 18:00 (6:00 PM) to cover overnight and next-morning loads.
             - Avoiding unnecessary battery cycling.
             - Following all safety rules below.
 
@@ -139,8 +140,8 @@ public class BatteryOptimizerWorker(
             - The optimizer is only called when Grid Connection Status is exactly "On grid".
             - If Grid Connection Status is anything else, do not trade, import, export, or modify battery targets. The application should skip the AI call.
             - Treat numeric telemetry as valid only when it is available and plausible.
-            - If required telemetry is unavailable, choose conservative HOLD-oriented thresholds.
-            - Battery Power Flow is positive when the battery is charging and negative when the battery is discharging.
+            - If required telemetry is unavailable, choose conservative SELF CONSUME thresholds.
+            - Battery Power Flow is negative (-) when the battery is charging and positive (+) when the battery is discharging.
             - Current House Load is the total household demand in watts.
             - Never intentionally reduce SOC below the configured reserve.
             - Never force a battery cycle when the expected net profit is negligible.
@@ -163,7 +164,7 @@ public class BatteryOptimizerWorker(
             - If grid import is $0.30/kWh, future export should be at least approximately $0.403/kWh.
             - If grid import is $0.50/kWh, future export should be at least approximately $0.626/kWh.
 
-            If the calculated margin is not positive and meaningful, HOLD.
+            If the calculated margin is not positive and meaningful, default to SELF CONSUME.
 
             If the grid import price is negative, grid charging may be profitable, but only if:
             - The battery has available capacity.
@@ -189,52 +190,53 @@ public class BatteryOptimizerWorker(
 
             2. PRE-SOLAR MORNING ARBITRAGE
 
-            If it is morning and the Solcast hourly forecast shows enough useful solar to recharge the battery before 15:00:
+            If it is morning and the Solcast hourly forecast shows enough useful solar to recharge the battery to at least 60% SOC (or higher if evening peak prices justify it) before 18:00:
 
             - The battery may discharge during the morning peak window of approximately 06:30-09:30.
             - Preserve enough energy to serve the household until solar generation becomes useful.
             - Do not discharge below the safe reserve unless the current feed-in price is exceptionally high.
             - Use the expected solar generation after subtracting household consumption.
-            - Do not dump energy if the solar forecast is insufficient to restore the battery before the evening peak.
+            - Do not dump energy if the solar forecast is insufficient to restore the battery to at least 60% before 18:00.
 
             3. SOLAR FORECAST INTERPRETATION
 
             - "Remaining today" is the total Solcast generation remaining for the current day.
             - The hourly Solcast values show the expected timing of that generation.
-            - Do not assume that all remaining solar will arrive before the evening peak.
+            - Do not assume that all remaining solar will arrive before 18:00.
             - Subtract expected household consumption from available solar before estimating energy available for battery charging.
-            - If the hourly forecast shows little or no useful solar before the evening peak, do not wait for solar.
-            - Evaluate profitable grid charging only when the expected future export price justifies it.
+            - If the hourly forecast shows little or no useful solar before 18:00, prioritize reaching and keeping ~60% SOC via profitable low-cost grid charging if needed.
+            - Evaluate profitable grid charging only when the expected future export price justifies it or when charging at cheap midday rates avoids higher evening import costs.
 
             4. MIDDAY SOLAR AND NEGATIVE PRICING
 
             Between approximately 10:00 and 15:00:
 
             - Prefer free solar over grid charging.
+            - If Solcast shows abundant solar that will easily fill the battery above 60% before 18:00, excess battery capacity above 60% may be exported during good daytime feed-in prices.
             - If feed-in prices are negative or close to zero, avoid exporting battery energy unless required to prevent solar curtailment.
             - Only import from the grid when the import price is below $0.00/kWh, or when profitable charging is clearly supported by the forecast.
-            - Do not fill the battery from the grid if sufficient solar is expected to charge it before the evening peak.
+            - Do not fill the battery from the grid if sufficient solar is expected to charge it before 18:00.
             - Do not export solar at a loss unless reducing SOC is necessary to create capacity for forecast solar generation.
 
-            5. EVENING PEAK CAPTURE
+            5. EVENING PEAK CAPTURE & 18:00 TARGET
 
-            Between approximately 16:30 and 21:30:
+            Target having at least ~60% SOC at 18:00 (6:00 PM) to cover overnight and next-morning household consumption.
 
-            - Identify the highest-value realistic 1-2 hour export window.
-            - Preserve enough battery capacity for that window.
+            - Before 18:00: Only export down toward 60% SOC (or lower if solar is still actively recharging it back to 60% by 18:00). Keep any capacity needed to hit 60% at 18:00 in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
+            - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above the 60% overnight reserve (for example, if solar charged the battery to 85–100%) is excess and should be exported during the evening peak at a good feed-in price.
             - Set export_price just below the highest realistic feed-in price that is likely to occur.
             - Do not discharge too early at a low price when a higher price is forecast soon.
-            - If an extreme feed-in price greater than $2.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve.
+            - If an extreme feed-in price greater than $2.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve (20%).
             - Do not export energy that will need to be repurchased later at a higher price.
 
             6. OVERNIGHT AND HOUSEHOLD-LOAD PROTECTION
 
-            Estimate the energy required for the household until the next useful solar period.
+            After 18:00, the ~60% SOC reserve is meant to carry the house through the night and next morning.
 
-            - Reserve sufficient energy for expected overnight household consumption.
-            - Do not export below 30% SOC unless the feed-in price exceeds $0.80/kWh or an extreme price event justifies it.
-            - If the battery is unlikely to receive useful solar before the next peak, increase the reserve.
-            - Never assume the battery can be recharged cheaply later without forecast evidence.
+            - Protect enough energy for expected overnight and morning household consumption until solar ramps up.
+            - Any SOC above what is needed for overnight/morning load (or above 60% if load is low) can be exported overnight if feed-in prices are attractive and exceed next-morning import replacement costs.
+            - Do not export below 30% SOC overnight unless the feed-in price exceeds $0.80/kWh or an extreme price event justifies it.
+            - If the battery is unlikely to receive useful solar the next morning, keep a higher overnight reserve.
 
             7. SOC AND POWER LIMITS
 
@@ -248,23 +250,20 @@ public class BatteryOptimizerWorker(
 
             Before selecting thresholds:
 
-            1. Determine whether the battery should CHARGE, DISCHARGE, or HOLD.
-            2. Estimate household energy requirements until the next useful solar period.
-            3. Identify the best realistic import and export opportunities.
+            1. Determine whether the battery should CHARGE, DISCHARGE, or SELF CONSUME.
+            2. Check current SOC against the 60% at 18:00 target and expected Solcast generation.
+            3. Identify any excess capacity above the 60% evening/overnight reserve and find the best realistic export window (daytime, evening peak, or overnight).
             4. Calculate whether any proposed cycle remains profitable after losses and degradation.
-            5. Reserve energy for the household and the most valuable future period.
-            6. Select conservative thresholds when the data is ambiguous.
+            5. Select conservative SELF CONSUME thresholds when the data is ambiguous.
 
             The reasoning must clearly explain:
-            - Whether the battery should charge, discharge, or hold.
-            - The expected profitable price spread.
-            - The highest-value forecast period.
-            - The estimated household-load requirement.
-            - The reason for the selected SOC limits.
-            - Whether solar generation is expected to replace exported energy.
-
+            - Whether the battery should charge, discharge, or self consume.
+            - How current SOC and Solcast compare to the 60% at 18:00 target.
+            - The expected profitable price spread and highest-value forecast period.
+            - The estimated overnight/morning household-load requirement.
+            - The reason for the selected export_stop_soc and charge_stop_soc limits.
+            
             Live Telemetry:
-
             - Current Local Time: {{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}
             - Battery SOC and Energy Budget: {{soc}}% ({{kwhBudgetSummary}})
             - Current Battery Power Flow: {{batteryPower}}
@@ -358,7 +357,9 @@ public class BatteryOptimizerWorker(
     private static async Task<string> GetEntityStateAsync(HttpClient client, string entityId, CancellationToken ct)
     {
         var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
-        return json.GetProperty("state").GetString() ?? "unknown";
+        if (!json.TryGetProperty("state", out var stateProp))
+            return "unknown";
+        return stateProp.GetString() ?? "unknown";
     }
 
     private static async Task<string> GetEntityStateWithUnitAsync(HttpClient client, string entityId, CancellationToken ct)
@@ -451,12 +452,14 @@ public class BatteryOptimizerWorker(
         return $"{currentHeader} | Next {hoursAhead}h: [{string.Join(", ", halfHourBuckets)}]";
     }
 
-    private static async Task<string> GetCompactWeatherAsync(HttpClient client, string entityId, int hoursAhead, CancellationToken ct)
+    private static async Task<string> GetCompactWeatherAsync(HttpClient client, string entityId, int hoursAhead, ILogger logger, CancellationToken ct)
     {
         try
         {
             var stateJson = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
-            string currentCondition = stateJson.GetProperty("state").GetString() ?? "unknown";
+            if (!stateJson.TryGetProperty("state", out var stateProp))
+                return "unavailable";
+            string currentCondition = stateProp.GetString() ?? "unknown";
             double currentTemp = stateJson.TryGetProperty("attributes", out var attrs) &&
                                  attrs.TryGetProperty("temperature", out var t) && t.TryGetDouble(out var tv)
                 ? tv : double.NaN;
@@ -523,14 +526,18 @@ public class BatteryOptimizerWorker(
                 ? $"{currentHeader} | Next {hoursAhead}h: [{string.Join(", ", hourlyEntries)}]"
                 : currentHeader;
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.LogWarning(ex, "Failed to fetch weather forecast for {Entity}", entityId);
             return "unavailable";
         }
     }
 
     private static async Task SetInputNumberAsync(HttpClient client, string entityId, double value, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(entityId))
+            throw new ArgumentException("Entity ID cannot be null or empty.", nameof(entityId));
+
         var payload = new { entity_id = entityId, value };
         var response = await client.PostAsJsonAsync("api/services/input_number/set_value", payload, ct);
         response.EnsureSuccessStatusCode();
@@ -541,13 +548,16 @@ public class BatteryOptimizerWorker(
         string forecastEntityId,
         string remainingEntityId,
         int hoursAhead,
+        ILogger logger,
         CancellationToken ct)
     {
         try
         {
             var forecastJson = await client.GetFromJsonAsync<JsonElement>($"api/states/{forecastEntityId}", ct);
             var remainingJson = await client.GetFromJsonAsync<JsonElement>($"api/states/{remainingEntityId}", ct);
-            string remainingKwh = remainingJson.GetProperty("state").GetString() ?? "unknown";
+            if (!remainingJson.TryGetProperty("state", out var stateProp))
+                return "Remaining today: unknown kWh";
+            string remainingKwh = stateProp.GetString() ?? "unknown";
 
             if (!forecastJson.TryGetProperty("attributes", out var attrs) ||
                 !attrs.TryGetProperty("detailedForecast", out var forecastArray) ||
@@ -590,8 +600,9 @@ public class BatteryOptimizerWorker(
                 ? $"Remaining today={remainingKwh}kWh | Next {hoursAhead}h solar: [{string.Join(", ", compactEntries)}]"
                 : $"Remaining today={remainingKwh}kWh | Next {hoursAhead}h solar: 0kW (night/no generation)";
         }
-        catch
+        catch (Exception ex)
         {
+            logger?.LogWarning(ex, "Failed to fetch Solcast forecast for {ForecastEntity} / {RemainingEntity}", forecastEntityId, remainingEntityId);
             return "unavailable";
         }
     }

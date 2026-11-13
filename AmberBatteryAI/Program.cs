@@ -30,10 +30,17 @@ app.UseRouting();
 
 app.MapRazorPages();
 
-app.MapGet("/api/status", (OptimizerState state) => Results.Ok(state.GetSnapshot()));
+app.MapGet("/api/status", (OptimizerState state) =>
+{
+    if (state == null)
+        return Results.BadRequest("OptimizerState is not available.");
+    return Results.Ok(state.GetSnapshot());
+});
 
 app.MapPost("/api/run-now", (OptimizerState state) =>
 {
+    if (state == null)
+        return Results.BadRequest("OptimizerState is not available.");
     state.TriggerImmediateRun();
     return Results.Accepted();
 });
