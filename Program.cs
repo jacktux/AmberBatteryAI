@@ -52,10 +52,11 @@ public class BatteryOptimizerWorker(
         var feedInSummary = await GetCompactAmberForecastAsync(haClient, feedInEntity, forecastHours, ct);
         var weatherSummary = await GetCompactWeatherAsync(haClient, weatherEntity, ct);
 
+        // Inside RunOptimizationCycleAsync:
         string solarSummary = "Not configured";
         if (!string.IsNullOrWhiteSpace(solarEntity))
         {
-            solarSummary = await GetEntityStateAsync(haClient, solarEntity, ct);
+            solarSummary = await GetCompactSolcastForecastAsync(haClient, solarEntity, forecastHours, ct);
         }
 
         // 2. Build prompt with trimmed telemetry
@@ -218,6 +219,62 @@ public class BatteryOptimizerWorker(
         var response = await client.PostAsJsonAsync("/api/services/input_number/set_value", payload, ct);
         response.EnsureSuccessStatusCode();
     }
+
+    private static async Task<string> GetCompactSolcastForecastAsync(HttpClient client, string entityId, int hoursAhead, CancellationToken ct)
+    {
+        try
+        {
+            var json = await client.GetFromJsonAsync<JsonElement>($"/api/states/{entityId}", ct);
+            string remainingKwh = json.GetProperty("state").GetString() ?? "unknown";
+
+            if (!json.TryGetProperty("attributes", out var attrs) ||
+                !attrs.TryGetProperty("detailedForecast", out var forecastArray) ||
+                forecastArray.ValueKind != JsonValueKind.Array)
+            {
+                return $"Remaining today: {remainingKwh} kWh";
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var cutoff = now.AddHours(hoursAhead);
+            var compactEntries = new List<string>();
+
+            foreach (var item in forecastArray.EnumerateArray())
+            {
+                string? timeStr = item.TryGetProperty("period_start", out var ps) ? ps.GetString() : null;
+
+                if (DateTimeOffset.TryParse(timeStr, out var periodStart))
+                {
+                    if (periodStart < now.AddMinutes(-30))
+                        continue;
+                    if (periodStart > cutoff)
+                        break;
+                }
+
+                double pvEstimate = item.TryGetProperty("pv_estimate", out var pv) && pv.TryGetDouble(out var d)
+                    ? Math.Round(d, 2)
+                    : 0;
+
+                // Skip 0 kW night-time intervals to save tokens
+                if (pvEstimate <= 0.01)
+                    continue;
+
+                string localLabel = DateTimeOffset.TryParse(timeStr, out var parsed)
+                    ? parsed.ToLocalTime().ToString("HH:mm")
+                    : timeStr ?? "?";
+
+                compactEntries.Add($"{localLabel}={pvEstimate}kW");
+            }
+
+            return compactEntries.Count > 0
+                ? $"Remaining today={remainingKwh}kWh | Next {hoursAhead}h solar: [{string.Join(", ", compactEntries)}]"
+                : $"Remaining today={remainingKwh}kWh | Next {hoursAhead}h solar: 0kW (night/no generation)";
+        }
+        catch
+        {
+            return "unavailable";
+        }
+    }
+
 
     private async Task<OptimizerDecision?> GetAiDecisionAsync(string prompt, CancellationToken ct)
     {
