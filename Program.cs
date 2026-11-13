@@ -302,33 +302,33 @@ public class BatteryOptimizerWorker(
             },
             response_format = new
             {
-                type = "json_object"
-                //type = "json_schema",
-                //json_schema = new
-                //{
-                //    name = "battery_thresholds",
-                //    strict = true,
-                //    schema = new
-                //    {
-                //        type = "object",
-                //        properties = new
-                //        {
-                //            export_price = new { type = "number" },
-                //            export_stop_soc = new { type = "number" },
-                //            export_power_limit = new { type = "number" },
-                //            import_price = new { type = "number" },
-                //            import_stop_soc = new { type = "number" },
-                //            import_power_limit = new { type = "number" },
-                //            reasoning = new { type = "string" }
-                //        },
-                //        required = new[]
-                //        {
-                //            "export_price", "export_stop_soc", "export_power_limit",
-                //            "import_price", "import_stop_soc", "import_power_limit", "reasoning"
-                //        },
-                //        additionalProperties = false
-                //    }
-                //}
+                //type = "json_object"
+                type = "json_schema",
+                json_schema = new
+                {
+                    name = "battery_thresholds",
+                    strict = true,
+                    schema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            export_price = new { type = "number" },
+                            export_stop_soc = new { type = "number" },
+                            export_power_limit = new { type = "number" },
+                            import_price = new { type = "number" },
+                            import_stop_soc = new { type = "number" },
+                            import_power_limit = new { type = "number" },
+                            reasoning = new { type = "string" }
+                        },
+                        required = new[]
+                        {
+                            "export_price", "export_stop_soc", "export_power_limit",
+                            "import_price", "import_stop_soc", "import_power_limit", "reasoning"
+                        },
+                        additionalProperties = false
+                    }
+                }
             }
         };
 
