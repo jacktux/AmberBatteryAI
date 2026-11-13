@@ -191,6 +191,7 @@
 
         <div class="card" style="margin-bottom: 16px;">
             <div class="label">AI Strategy Reasoning</div>
+            <div class="value" id="mode">--</div>
             <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
         </div>
 
@@ -232,6 +233,7 @@
                 document.getElementById('gridStatus').textContent = data.gridStatus || 'Unknown';
 
                 if (data.decision) {
+                    document.getElementById('mode').textContent = data.decision.mode || 'Unknown';
                     document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
                     document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC | Max ' + data.decision.exportPowerLimit + 'W';
 

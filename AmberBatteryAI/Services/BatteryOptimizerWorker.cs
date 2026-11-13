@@ -101,29 +101,184 @@ public class BatteryOptimizerWorker(
             kwhBudgetSummary = $"{storedKwh} kWh stored of {batteryCapacityKwh} kWh total ({usableAboveReserveKwh} kWh usable above 20% floor; {neededToFullKwh} kWh needed to reach 100%)";
         }
 
+        //string prompt = $$"""
+        //    You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
+        //    Your sole objective is to MAXIMIZE NET FINANCIAL PROFIT ($ AUD) over the next {{forecastHours}} hours while accounting for ~10% round-trip inverter/battery efficiency losses and $0.05/kWh battery degradation cost.
+
+        //    Trading & Arbitrage Rules (Strictly Follow):
+        //    1. MINIMUM PROFIT SPREAD: Never cycle the battery for tiny margins. To profitably buy from the grid and sell later, the expected future export price MUST exceed (current_import_price * 1.12) + $0.06/kWh.
+        //    2. PRE-SOLAR DUMPING (MORNING ARBITRAGE): If it is morning and Solcast shows enough upcoming solar kWh (after covering current house load) to easily recharge the battery to 100% before 15:00, sell existing battery charge during the morning peak (06:30-09:30) down to 20-30% SOC so you don't waste free solar to curtailment or negative midday feed-in.
+        //    3. MIDDAY SOLAR & NEGATIVE PRICING: Between 10:00 and 15:00, if feed-in prices are negative or near $0, rely on free solar first. Only trigger grid import (import_price) if general grid prices drop below $0.00 (get paid to charge) OR if Solcast shows insufficient solar to reach 95-100% SOC before the evening peak (16:30-21:00) AND current general price is significantly cheaper than evening peak prices.
+        //    4. EVENING PEAK CAPTURE (16:30 - 21:30): Hold battery capacity for the highest-priced 1-2 hour window in the forecast. Set export_price just below the top forecasted spike prices (e.g., if peak forecast is $0.85-$1.50, set export_price to $0.75) so you capture the spike without dumping early at $0.25. If an extreme spike (>$2.00/kWh) is occurring NOW, drop export_stop_soc to 20% and set export_power_limit to 10000W immediately.
+        //    5. OVERNIGHT / SHOULDER PROTECTION: Account for current house load to estimate overnight kWh consumption. Never export below 30% SOC unless feed-in exceeds $0.80/kWh, ensuring you cover overnight household load instead of buying back expensive peak/shoulder power.
+        //    6. DEADBAND SAFETY: Keep import_price at least $0.10/kWh below export_price at all times.
+
+        //    Live Telemetry:
+        //    - Current Local Time: {{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}
+        //    - Battery SOC & Energy Budget: {{soc}}% ({{kwhBudgetSummary}})
+        //    - Current Battery Power Flow: {{batteryPower}}
+        //    - Current House Load: {{homePower}}
+        //    - Grid Connection Status: {{gridStatus}}
+        //    - General Import Price & Forecast: {{generalSummary}}
+        //    - Feed-in Export Price & Forecast: {{feedInSummary}}
+        //    - Weather Outlook: {{weatherSummary}}
+        //    - Solar Forecast (Solcast): {{solarSummary}}
+        //    """;
         string prompt = $$"""
             You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
-            Your sole objective is to MAXIMIZE NET FINANCIAL PROFIT ($ AUD) over the next {{forecastHours}} hours while accounting for ~10% round-trip inverter/battery efficiency losses and $0.05/kWh battery degradation cost.
 
-            Trading & Arbitrage Rules (Strictly Follow):
-            1. MINIMUM PROFIT SPREAD: Never cycle the battery for tiny margins. To profitably buy from the grid and sell later, the expected future export price MUST exceed (current_import_price * 1.12) + $0.06/kWh.
-            2. PRE-SOLAR DUMPING (MORNING ARBITRAGE): If it is morning and Solcast shows enough upcoming solar kWh (after covering current house load) to easily recharge the battery to 100% before 15:00, sell existing battery charge during the morning peak (06:30-09:30) down to 20-30% SOC so you don't waste free solar to curtailment or negative midday feed-in.
-            3. MIDDAY SOLAR & NEGATIVE PRICING: Between 10:00 and 15:00, if feed-in prices are negative or near $0, rely on free solar first. Only trigger grid import (import_price) if general grid prices drop below $0.00 (get paid to charge) OR if Solcast shows insufficient solar to reach 95-100% SOC before the evening peak (16:30-21:00) AND current general price is significantly cheaper than evening peak prices.
-            4. EVENING PEAK CAPTURE (16:30 - 21:30): Hold battery capacity for the highest-priced 1-2 hour window in the forecast. Set export_price just below the top forecasted spike prices (e.g., if peak forecast is $0.85-$1.50, set export_price to $0.75) so you capture the spike without dumping early at $0.25. If an extreme spike (>$2.00/kWh) is occurring NOW, drop export_stop_soc to 20% and set export_power_limit to 10000W immediately.
-            5. OVERNIGHT / SHOULDER PROTECTION: Account for current house load to estimate overnight kWh consumption. Never export below 30% SOC unless feed-in exceeds $0.80/kWh, ensuring you cover overnight household load instead of buying back expensive peak/shoulder power.
-            6. DEADBAND SAFETY: Keep import_price at least $0.10/kWh below export_price at all times.
+            Your objective is to maximize net financial profit in AUD over the next {{forecastHours}} hours while:
+            - Accounting for approximately 10% round-trip battery and inverter losses.
+            - Accounting for a battery degradation cost of $0.05/kWh.
+            - Maintaining enough energy for household consumption.
+            - Avoiding unnecessary battery cycling.
+            - Following all safety rules below.
+
+            OPERATING MODE AND SAFETY:
+
+            - The optimizer is only called when Grid Connection Status is exactly "On grid".
+            - If Grid Connection Status is anything else, do not trade, import, export, or modify battery targets. The application should skip the AI call.
+            - Treat numeric telemetry as valid only when it is available and plausible.
+            - If required telemetry is unavailable, choose conservative HOLD-oriented thresholds.
+            - Battery Power Flow is positive when the battery is charging and negative when the battery is discharging.
+            - Current House Load is the total household demand in watts.
+            - Never intentionally reduce SOC below the configured reserve.
+            - Never force a battery cycle when the expected net profit is negligible.
+            - Do not invent missing forecasts, prices, load values, or solar values.
+
+            PROFITABILITY CALCULATION:
+
+            A grid-charging arbitrage cycle must account for battery losses and degradation.
+
+            For a positive grid import price, calculate:
+
+            minimum_future_export_price =
+                (grid_import_price / 0.90) + 0.05 + 0.02
+
+            Only charge from the grid when the expected future feed-in price is at least this calculated value.
+
+            The additional $0.02/kWh is the minimum required trading margin.
+
+            Examples:
+            - If grid import is $0.30/kWh, future export should be at least approximately $0.403/kWh.
+            - If grid import is $0.50/kWh, future export should be at least approximately $0.626/kWh.
+
+            If the calculated margin is not positive and meaningful, HOLD.
+
+            If the grid import price is negative, grid charging may be profitable, but only if:
+            - The battery has available capacity.
+            - Charging will not prevent a more profitable later export.
+            - The SOC reserve and household-load requirements remain safe.
+
+            TRADING RULES:
+
+            1. MINIMUM PROFIT SPREAD
+
+            Never cycle the battery for a small margin.
+
+            To charge from the grid for later export:
+            - Compare the current or planned import price with the best realistic future feed-in price.
+            - Account for 10% round-trip losses.
+            - Account for $0.05/kWh degradation.
+            - Require at least $0.02/kWh additional profit after those costs.
+            - Do not charge from the grid merely because a future price is higher.
+
+            Maintain a deadband at all times:
+
+            import_price must be at least $0.10/kWh below export_price.
+
+            2. PRE-SOLAR MORNING ARBITRAGE
+
+            If it is morning and the Solcast hourly forecast shows enough useful solar to recharge the battery before 15:00:
+
+            - The battery may discharge during the morning peak window of approximately 06:30-09:30.
+            - Preserve enough energy to serve the household until solar generation becomes useful.
+            - Do not discharge below the safe reserve unless the current feed-in price is exceptionally high.
+            - Use the expected solar generation after subtracting household consumption.
+            - Do not dump energy if the solar forecast is insufficient to restore the battery before the evening peak.
+
+            3. SOLAR FORECAST INTERPRETATION
+
+            - "Remaining today" is the total Solcast generation remaining for the current day.
+            - The hourly Solcast values show the expected timing of that generation.
+            - Do not assume that all remaining solar will arrive before the evening peak.
+            - Subtract expected household consumption from available solar before estimating energy available for battery charging.
+            - If the hourly forecast shows little or no useful solar before the evening peak, do not wait for solar.
+            - Evaluate profitable grid charging only when the expected future export price justifies it.
+
+            4. MIDDAY SOLAR AND NEGATIVE PRICING
+
+            Between approximately 10:00 and 15:00:
+
+            - Prefer free solar over grid charging.
+            - If feed-in prices are negative or close to zero, avoid exporting battery energy unless required to prevent solar curtailment.
+            - Only import from the grid when the import price is below $0.00/kWh, or when profitable charging is clearly supported by the forecast.
+            - Do not fill the battery from the grid if sufficient solar is expected to charge it before the evening peak.
+            - Do not export solar at a loss unless reducing SOC is necessary to create capacity for forecast solar generation.
+
+            5. EVENING PEAK CAPTURE
+
+            Between approximately 16:30 and 21:30:
+
+            - Identify the highest-value realistic 1-2 hour export window.
+            - Preserve enough battery capacity for that window.
+            - Set export_price just below the highest realistic feed-in price that is likely to occur.
+            - Do not discharge too early at a low price when a higher price is forecast soon.
+            - If an extreme feed-in price greater than $2.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve.
+            - Do not export energy that will need to be repurchased later at a higher price.
+
+            6. OVERNIGHT AND HOUSEHOLD-LOAD PROTECTION
+
+            Estimate the energy required for the household until the next useful solar period.
+
+            - Reserve sufficient energy for expected overnight household consumption.
+            - Do not export below 30% SOC unless the feed-in price exceeds $0.80/kWh or an extreme price event justifies it.
+            - If the battery is unlikely to receive useful solar before the next peak, increase the reserve.
+            - Never assume the battery can be recharged cheaply later without forecast evidence.
+
+            7. SOC AND POWER LIMITS
+
+            - Respect the configured minimum and maximum SOC limits.
+            - Do not request export or import power below the minimum practical operating power.
+            - Use the highest safe power limit only when the price signal clearly justifies it.
+            - Avoid rapid or unnecessary cycling.
+            - If the battery is already charging or discharging, consider whether changing direction would create unnecessary losses.
+
+            DECISION PROCESS:
+
+            Before selecting thresholds:
+
+            1. Determine whether the battery should CHARGE, DISCHARGE, or HOLD.
+            2. Estimate household energy requirements until the next useful solar period.
+            3. Identify the best realistic import and export opportunities.
+            4. Calculate whether any proposed cycle remains profitable after losses and degradation.
+            5. Reserve energy for the household and the most valuable future period.
+            6. Select conservative thresholds when the data is ambiguous.
+
+            The reasoning must clearly explain:
+            - Whether the battery should charge, discharge, or hold.
+            - The expected profitable price spread.
+            - The highest-value forecast period.
+            - The estimated household-load requirement.
+            - The reason for the selected SOC limits.
+            - Whether solar generation is expected to replace exported energy.
 
             Live Telemetry:
+
             - Current Local Time: {{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}
-            - Battery SOC & Energy Budget: {{soc}}% ({{kwhBudgetSummary}})
+            - Battery SOC and Energy Budget: {{soc}}% ({{kwhBudgetSummary}})
             - Current Battery Power Flow: {{batteryPower}}
             - Current House Load: {{homePower}}
             - Grid Connection Status: {{gridStatus}}
-            - General Import Price & Forecast: {{generalSummary}}
-            - Feed-in Export Price & Forecast: {{feedInSummary}}
+            - General Import Price and Forecast: {{generalSummary}}
+            - Feed-in Export Price and Forecast: {{feedInSummary}}
             - Weather Outlook: {{weatherSummary}}
             - Solar Forecast (Solcast): {{solarSummary}}
+
+            Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
             """;
+
+
 
         var decision = await GetAiDecisionAsync(prompt, ct);
         if (decision is null) return;
@@ -170,6 +325,7 @@ public class BatteryOptimizerWorker(
         string telemetrySnapshot = $"SOC: {soc}% ({kwhBudgetSummary}) | Battery: {batteryPower} | Home: {homePower} | Solar: {solarSummary}";
         state.RecordSuccess(
             new AppliedDecision(
+                decision.Mode,
                 safeExportPrice,
                 safeExportStopSoc,
                 safeExportLimit,
@@ -466,7 +622,7 @@ public class BatteryOptimizerWorker(
                     role = "system",
                     content = """
                         You output strictly valid JSON with no markdown fences and exact property names:
-                        {"export_price": number, "export_stop_soc": number, "export_power_limit": number, "import_price": number, "import_stop_soc": number, "import_power_limit": number, "reasoning": string}
+                        {"mode": string, "export_price": number, "export_stop_soc": number, "export_power_limit": number, "import_price": number, "import_stop_soc": number, "import_power_limit": number, "reasoning": string}
                         """
                 },
                 new { role = "user", content = prompt }

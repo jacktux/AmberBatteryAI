@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.0.5"
+version: "1.0.6"
 slug: amber_battery_ai
 init: false
 arch:

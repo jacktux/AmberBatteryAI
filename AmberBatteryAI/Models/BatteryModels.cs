@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 namespace AmberBatteryAI.Models;
 
 public record OptimizerDecision(
+    [property: JsonPropertyName("mode")] string Mode,
     [property: JsonPropertyName("export_price")] double ExportPrice,
     [property: JsonPropertyName("export_stop_soc")] double ExportStopSoc,
     [property: JsonPropertyName("export_power_limit")] double ExportPowerLimit,
@@ -13,6 +14,7 @@ public record OptimizerDecision(
 );
 
 public record AppliedDecision(
+    string Mode,
     double ExportPrice,
     double ExportStopSoc,
     double ExportPowerLimit,
