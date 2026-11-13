@@ -1,21 +1,61 @@
-﻿name: "Amber Battery AI"
+name: Amber Battery AI
+description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
 version: "1.0.0"
-slug: "amberbatteryai"
-description: "Amber Battery AI"
+slug: amber_battery_ai
+init: false
 arch:
-  - amd64
   - aarch64
-ingress: true
-ingress_port: 9810
-ingress_path: "/"
-panel_icon: "mdi:language-csharp"
-panel_title: "Amber Battery"
-ports:
-  9801/tcp: 9801
-environment:
-  SUPERVISOR_URL: "http://supervisor/core/"
-  TZ: "UTC"
+  - amd64
+startup: application
+boot: auto
 homeassistant_api: true
-auth_api: true
-hassio_api: true
-hassio_role: admin
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:battery-charging-high
+panel_title: Battery AI
+options:
+  ai_provider_endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+  ai_api_key: "AQ.Ab8RN6KxgPCgJhKZeZjmXb2IVYTw8TKIGHfRhc_FUUxSIL-eKQ"
+  ai_model: "gemini-3.5-flash-lite"
+  battery_soc_entity: "sensor.la_electrical_battery_soc"
+  battery_power_entity: "sensor.la_electrical_battery_power"
+  home_power_entity: "sensor.la_sigenstor1_home_power"
+  battery_capacity_kwh: 16.0
+  general_price_entity: "sensor.amber_express_home_general_price"
+  feed_in_price_entity: "sensor.amber_express_home_feed_in_price"
+  weather_entity: "weather.welby_hourly"
+  solar_forecast_entity: "sensor.solcast_pv_forecast_forecast_today"
+  interval_minutes: 30
+  forecast_hours: 12
+  min_export_price: 0.15
+  max_export_price: 5.00
+  min_export_stop_soc: 20
+  max_export_stop_soc: 95
+  min_import_price: -1.00
+  max_import_price: 0.25
+  min_import_stop_soc: 30
+  max_import_stop_soc: 100
+  max_power_watts: 10000
+schema:
+  ai_provider_endpoint: str
+  ai_api_key: password
+  ai_model: str
+  battery_soc_entity: str
+  battery_power_entity: str
+  home_power_entity: str
+  battery_capacity_kwh: float
+  general_price_entity: str
+  feed_in_price_entity: str
+  weather_entity: str
+  solar_forecast_entity: str
+  interval_minutes: int(5,120)
+  forecast_hours: int(4,24)
+  min_export_price: float
+  max_export_price: float
+  min_export_stop_soc: int(10,100)
+  max_export_stop_soc: int(10,100)
+  min_import_price: float
+  max_import_price: float
+  min_import_stop_soc: int(10,100)
+  max_import_stop_soc: int(10,100)
+  max_power_watts: int(1000,30000)

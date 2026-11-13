@@ -1,0 +1,233 @@
+@page
+@model AmberBatteryAI.Pages.IndexModel
+@{
+    ViewData["Title"] = "Amber Battery AI";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Amber Battery AI</title>
+    <style>
+        :root {
+            --bg: #111827;
+            --card: #1f2937;
+            --text: #f9fafb;
+            --muted: #9ca3af;
+            --accent: #38bdf8;
+            --gold: #fbbf24;
+            --green: #34d399;
+            --red: #f87171;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        button {
+            background: var(--accent);
+            color: #0f172a;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        .label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .value {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .sub {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-top: 6px;
+        }
+
+        .export {
+            border-left: 4px solid var(--gold);
+        }
+
+        .import {
+            border-left: 4px solid var(--accent);
+        }
+
+        .schedule {
+            border-left: 4px solid var(--green);
+        }
+
+        .reason {
+            line-height: 1.55;
+            font-size: 1rem;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            background: rgba(248,113,113,0.15);
+            border: 1px solid var(--red);
+            color: #fecaca;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Amber Battery AI Optimizer</h1>
+            <button id="runBtn" type="button" onclick="triggerRun()">Run Optimization Now</button>
+        </div>
+
+        <div id="errorBox" class="error" style="display:none;"></div>
+
+        <div class="grid">
+            <div class="card schedule">
+                <div class="label">Next Scheduled Run</div>
+                <div class="value" id="countdown">--:--</div>
+                <div class="sub" id="scheduleTimes">Loading schedule...</div>
+            </div>
+
+            <div class="card export">
+                <div class="label">Export Thresholds</div>
+                <div class="value" id="exportMain">--</div>
+                <div class="sub" id="exportSub">Stop SOC: -- | Limit: --</div>
+            </div>
+
+            <div class="card import">
+                <div class="label">Import Thresholds</div>
+                <div class="value" id="importMain">--</div>
+                <div class="sub" id="importSub">Stop SOC: -- | Limit: --</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="label">AI Strategy Reasoning</div>
+            <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Latest Telemetry Snapshot</div>
+            <div class="sub" id="telemetry" style="color: var(--text); line-height: 1.6;">--</div>
+        </div>
+    </div>
+
+    <script>
+        let nextRunIso = null;
+
+        async function refreshStatus() {
+            try {
+                const res = await fetch('api/status');
+                const data = await res.json();
+
+                nextRunIso = data.nextRunUtc;
+                const btn = document.getElementById('runBtn');
+                btn.disabled = data.isRunning;
+                btn.textContent = data.isRunning ? 'Running Cycle...' : 'Run Optimization Now';
+
+                const errBox = document.getElementById('errorBox');
+                if (data.lastError) {
+                    errBox.style.display = 'block';
+                    errBox.textContent = 'Last Error: ' + data.lastError;
+                } else {
+                    errBox.style.display = 'none';
+                }
+
+                const lastStr = data.lastRunUtc ? new Date(data.lastRunUtc).toLocaleTimeString() : 'Never';
+                const nextStr = data.nextRunUtc ? new Date(data.nextRunUtc).toLocaleTimeString() : '--';
+                document.getElementById('scheduleTimes').textContent = 'Last run: ' + lastStr + ' | Next: ' + nextStr;
+
+                if (data.decision) {
+                    document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
+                    document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC | Max ' + data.decision.exportPowerLimit + 'W';
+
+                    document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
+                    document.getElementById('importSub').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC | Max ' + data.decision.importPowerLimit + 'W';
+
+                    document.getElementById('reasoning').textContent = data.decision.reasoning;
+                }
+
+                if (data.telemetrySummary) {
+                    document.getElementById('telemetry').textContent = data.telemetrySummary;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function updateCountdown() {
+            if (!nextRunIso) return;
+            const diffMs = new Date(nextRunIso) - new Date();
+            if (diffMs <= 0) {
+                document.getElementById('countdown').textContent = 'Due now...';
+                return;
+            }
+            const mins = Math.floor(diffMs / 60000);
+            const secs = Math.floor((diffMs % 60000) / 1000);
+            document.getElementById('countdown').textContent = String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's';
+        }
+
+        async function triggerRun() {
+            document.getElementById('runBtn').disabled = true;
+            await fetch('api/run-now', { method: 'POST' });
+            setTimeout(refreshStatus, 1000);
+        }
+
+        refreshStatus();
+        setInterval(refreshStatus, 5000);
+        setInterval(updateCountdown, 1000);
+    </script>
+</body>
+</html>
