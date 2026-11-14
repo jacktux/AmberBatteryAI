@@ -11,6 +11,28 @@ public class BatteryOptimizerWorker(
     OptimizerState state,
     ILogger<BatteryOptimizerWorker> logger) : BackgroundService
 {
+    private const string OutputInstructions = """
+        OUTPUT:
+        Respond with a single JSON object only. No markdown, no text outside the JSON.
+        Use exactly these property names:
+        {
+          "mode": "CHARGE" | "DISCHARGE" | "SELF CONSUME",
+          "export_price": number,
+          "export_stop_soc": number,
+          "export_power_limit": number,
+          "import_price": number,
+          "import_stop_soc": number,
+          "import_power_limit": number,
+          "hot_water": "OFF" | "MINIMAL" | "FULL",
+          "reasoning": string
+        }
+        - export_price and import_price are in $/kWh.
+        - export_stop_soc and import_stop_soc are percentages between 0 and 100.
+        - export_power_limit and import_power_limit are in watts.
+        - hot_water is the Rule 8 result.
+        - reasoning must cover the 5 items in DECISION PROCESS, in 150 words or fewer.
+        """;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         int intervalMinutes = config.GetValue("Optimizer:IntervalMinutes", 30);
@@ -64,10 +86,13 @@ public class BatteryOptimizerWorker(
         string weatherEntity = config["HomeAssistant:WeatherEntity"] ?? "weather.welby_hourly";
         string solarEntity = config["HomeAssistant:SolarForecastEntity"] ?? "sensor.solcast_pv_forecast_forecast_today";
         string remainingSolarEntity = config["HomeAssistant:SolarForecastRemainingEntity"] ?? "sensor.solcast_pv_forecast_forecast_remaining_today";
+        string hotWaterTankEntity = config["HomeAssistant:HotWaterTankTempEntity"] ?? "sensor.la_hot_water_tank_temperature_2";
+        string hotWaterModeEntity = config["HomeAssistant:HotWaterModeEntity"] ?? "input_select.hot_water_mode";
 
         var soc = await GetEntityStateAsync(haClient, socEntity, ct);
         var batteryPower = await GetEntityStateWithUnitAsync(haClient, batteryPowerEntity, ct);
         var homePower = await GetEntityStateWithUnitAsync(haClient, homePowerEntity, ct);
+        var hotWaterTemp = await GetEntityStateWithUnitAsync(haClient, hotWaterTankEntity, ct);
         var gridStatus = await GetEntityStateAsync(haClient, gridStatusEntity, ct);
         state.SetGridStatus(gridStatus);
 
@@ -108,12 +133,14 @@ public class BatteryOptimizerWorker(
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
             // Use custom prompt but interpolate live telemetry variables
-            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary);
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp);
         }
         else
         {
-            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary);
+            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp);
         }
+
+        prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
 
         var decision = await GetAiDecisionAsync(prompt, ct);
         if (decision is null) return;
@@ -156,6 +183,16 @@ public class BatteryOptimizerWorker(
         await SetInputNumberAsync(haClient, "input_number.import_price", safeImportPrice, ct);
         await SetInputNumberAsync(haClient, "input_number.import_stop_soc", safeImportStopSoc, ct);
         await SetInputNumberAsync(haClient, "input_number.import_power_limit", safeImportLimit, ct);
+
+        string? hotWaterOption = NormalizeHotWaterOption(decision.HotWater);
+        if (hotWaterOption is not null)
+        {
+            await SetInputSelectAsync(haClient, hotWaterModeEntity, hotWaterOption, ct);
+        }
+        else
+        {
+            logger.LogWarning("AI returned unrecognised hot_water value '{HotWater}'; hot water mode unchanged.", decision.HotWater);
+        }
 
         string telemetrySnapshot = $"SOC: {soc}% ({kwhBudgetSummary}) | Battery: {batteryPower} | Home: {homePower} | Solar: {solarSummary}";
         state.RecordSuccess(
@@ -385,6 +422,21 @@ public class BatteryOptimizerWorker(
         response.EnsureSuccessStatusCode();
     }
 
+    private static async Task SetInputSelectAsync(HttpClient client, string entityId, string option, CancellationToken ct)
+    {
+        var payload = new { entity_id = entityId, option };
+        var response = await client.PostAsJsonAsync("api/services/input_select/select_option", payload, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static string? NormalizeHotWaterOption(string? value) => value?.Trim().ToUpperInvariant() switch
+    {
+        "OFF" => "Off",
+        "MINIMAL" => "Minimal",
+        "FULL" => "Full",
+        _ => null
+    };
+
     private static async Task<string> GetCompactSolcastForecastAsync(
         HttpClient client,
         string forecastEntityId,
@@ -446,22 +498,23 @@ public class BatteryOptimizerWorker(
         {
             logger?.LogWarning(ex, "Failed to fetch Solcast forecast for {ForecastEntity} / {RemainingEntity}", forecastEntityId, remainingEntityId);
             return "unavailable";
-            }
         }
+    }
 
-        private string BuildDefaultPrompt(
-            int forecastHours,
-            string soc,
-            string kwhBudgetSummary,
-            string batteryPower,
-            string homePower,
-            string gridStatus,
-            string generalSummary,
-            string feedInSummary,
-            string weatherSummary,
-            string solarSummary)
-        {
-            return $$"""
+    private string BuildDefaultPrompt(
+        int forecastHours,
+        string soc,
+        string kwhBudgetSummary,
+        string batteryPower,
+        string homePower,
+        string gridStatus,
+        string generalSummary,
+        string feedInSummary,
+        string weatherSummary,
+        string solarSummary,
+        string hotWaterTemp)
+    {
+        return $$"""
                 You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
 
                 Your objective is to maximize net financial profit in AUD over the next {{forecastHours}} hours while:
@@ -583,6 +636,13 @@ public class BatteryOptimizerWorker(
                 - Avoid rapid or unnecessary cycling.
                 - If the battery is already charging or discharging, consider whether changing direction would create unnecessary losses.
 
+                8. HOT WATER
+
+                Set hot_water to exactly one of OFF, MINIMAL, or FULL using the Hot Water Tank Temperature in the telemetry below:
+                - OFF when the tank is at or above 60°C, or when the import price is above $0.25/kWh and the tank is at or above 45°C.
+                - FULL when the tank is below 45°C and solar is forecast to be in surplus, or when the import price is below $0.00/kWh.
+                - MINIMAL in all other cases, including when the tank temperature is unknown.
+
                 DECISION PROCESS:
 
                 Before selecting thresholds:
@@ -610,26 +670,28 @@ public class BatteryOptimizerWorker(
                 - Feed-in Export Price and Forecast: {{feedInSummary}}
                 - Weather Outlook: {{weatherSummary}}
                 - Solar Forecast (Solcast): {{solarSummary}}
+                - Hot Water Tank Temperature: {{hotWaterTemp}}
 
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
                 """;
-                    }
+    }
 
-                private string InterpolatePromptVariables(
-                    string customPrompt,
-                    int forecastHours,
-                    string soc,
-                    string kwhBudgetSummary,
-                    string batteryPower,
-                    string homePower,
-                    string gridStatus,
-                    string generalSummary,
-                    string feedInSummary,
-                    string weatherSummary,
-                    string solarSummary)
-                {
-                    // Create a dictionary of replacement variables
-                    var replacements = new Dictionary<string, string>
+    private string InterpolatePromptVariables(
+        string customPrompt,
+        int forecastHours,
+        string soc,
+        string kwhBudgetSummary,
+        string batteryPower,
+        string homePower,
+        string gridStatus,
+        string generalSummary,
+        string feedInSummary,
+        string weatherSummary,
+        string solarSummary,
+        string hotWaterTemp)
+    {
+        // Create a dictionary
+        var replacements = new Dictionary<string, string>
                     {
                         { "{{forecastHours}}", forecastHours.ToString() },
                         { "{{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}", DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm zzz") },
@@ -641,19 +703,20 @@ public class BatteryOptimizerWorker(
                         { "{{generalSummary}}", generalSummary },
                         { "{{feedInSummary}}", feedInSummary },
                         { "{{weatherSummary}}", weatherSummary },
-                        { "{{solarSummary}}", solarSummary }
+                        { "{{solarSummary}}", solarSummary },
+                        { "{{hotWaterTemp}}", hotWaterTemp }
                     };
 
-                    string result = customPrompt;
-                    foreach (var kvp in replacements)
-                    {
-                        result = result.Replace(kvp.Key, kvp.Value);
-                    }
+        string result = customPrompt;
+        foreach (var kvp in replacements)
+        {
+            result = result.Replace(kvp.Key, kvp.Value);
+        }
 
-                    return result;
-                }
+        return result;
+    }
 
-                    private async Task<OptimizerDecision?> GetAiDecisionAsync(string prompt, CancellationToken ct)
+    private async Task<OptimizerDecision?> GetAiDecisionAsync(string prompt, CancellationToken ct)
     {
         var client = httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(2);
@@ -674,14 +737,6 @@ public class BatteryOptimizerWorker(
             model,
             messages = new[]
             {
-                new
-                {
-                    role = "system",
-                    content = """
-                        You output strictly valid JSON with no markdown fences and exact property names:
-                        {"mode": string, "export_price": number, "export_stop_soc": number, "export_power_limit": number, "import_price": number, "import_stop_soc": number, "import_power_limit": number, "reasoning": string}
-                        """
-                },
                 new { role = "user", content = prompt }
             },
             response_format = new
