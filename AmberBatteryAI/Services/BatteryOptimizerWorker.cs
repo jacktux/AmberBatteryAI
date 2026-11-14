@@ -268,13 +268,19 @@ public class BatteryOptimizerWorker(
         if (intervals.Count == 0)
             return $"Current=${currentState} ({descriptor})";
 
+        var fineCutoff = now.AddMinutes(30);
         var halfHourBuckets = intervals
-            .GroupBy(x => new DateTime(x.LocalTime.Year, x.LocalTime.Month, x.LocalTime.Day, x.LocalTime.Hour, (x.LocalTime.Minute / 30) * 30, 0))
+            .GroupBy(x =>
+            {
+                int bucketMinutes = x.LocalTime < fineCutoff ? 5 : 30;
+                var start = new DateTime(x.LocalTime.Year, x.LocalTime.Month, x.LocalTime.Day, x.LocalTime.Hour, (x.LocalTime.Minute / bucketMinutes) * bucketMinutes, 0);
+                return (Fine: bucketMinutes == 5, Start: start);
+            })
             .Select(g =>
             {
                 double avg = Math.Round(g.Average(x => x.Value), 3);
                 double max = Math.Round(g.Max(x => x.Value), 3);
-                string label = g.Key.ToString("HH:mm");
+                string label = g.Key.Start.ToString("HH:mm");
 
                 return (max - avg) >= 0.05
                     ? $"{label}=avg${avg}/max${max}"
