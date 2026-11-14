@@ -107,7 +107,8 @@ public class BatteryOptimizerWorker(
         string prompt;
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
-            prompt = customPrompt;
+            // Use custom prompt but interpolate live telemetry variables
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary);
         }
         else
         {
@@ -606,9 +607,47 @@ public class BatteryOptimizerWorker(
 
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
                 """;
-        }
+                    }
 
-        private async Task<OptimizerDecision?> GetAiDecisionAsync(string prompt, CancellationToken ct)
+                private string InterpolatePromptVariables(
+                    string customPrompt,
+                    int forecastHours,
+                    string soc,
+                    string kwhBudgetSummary,
+                    string batteryPower,
+                    string homePower,
+                    string gridStatus,
+                    string generalSummary,
+                    string feedInSummary,
+                    string weatherSummary,
+                    string solarSummary)
+                {
+                    // Create a dictionary of replacement variables
+                    var replacements = new Dictionary<string, string>
+                    {
+                        { "{{forecastHours}}", forecastHours.ToString() },
+                        { "{{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}", DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm zzz") },
+                        { "{{soc}}", soc },
+                        { "{{kwhBudgetSummary}}", kwhBudgetSummary },
+                        { "{{batteryPower}}", batteryPower },
+                        { "{{homePower}}", homePower },
+                        { "{{gridStatus}}", gridStatus },
+                        { "{{generalSummary}}", generalSummary },
+                        { "{{feedInSummary}}", feedInSummary },
+                        { "{{weatherSummary}}", weatherSummary },
+                        { "{{solarSummary}}", solarSummary }
+                    };
+
+                    string result = customPrompt;
+                    foreach (var kvp in replacements)
+                    {
+                        result = result.Replace(kvp.Key, kvp.Value);
+                    }
+
+                    return result;
+                }
+
+                    private async Task<OptimizerDecision?> GetAiDecisionAsync(string prompt, CancellationToken ct)
     {
         var client = httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(2);

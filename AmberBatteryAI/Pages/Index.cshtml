@@ -195,19 +195,78 @@
                 <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
             </div>
 
-            <div class="card" style="margin-bottom: 16px;">
-                <div class="label">Custom AI Prompt</div>
-                <button id="editPromptBtn" type="button" onclick="showPromptEditor()">Edit Custom Prompt</button>
-                <div id="promptEditorContainer" style="display: none; margin-top: 12px;">
-                    <textarea id="customPromptTextarea" style="width: 100%; min-height: 300px; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; color: var(--text); background: var(--card); border: 1px solid var(--muted); resize: vertical;"></textarea>
-                    <div style="margin-top: 8px; display: flex; gap: 8px;">
-                        <button type="button" onclick="saveCustomPrompt()" style="background: var(--green);">Save Custom Prompt</button>
-                        <button type="button" onclick="loadDefaultPrompt()" style="background: var(--gold);">Load Default Prompt</button>
-                        <button type="button" onclick="hidePromptEditor()">Cancel</button>
-                    </div>
-                </div>
-                <div id="promptStatus" style="margin-top: 8px; font-size: 0.9rem; color: var(--muted);">--</div>
-            </div>
+                         <div class="card" style="margin-bottom: 16px;">
+                             <div class="label">Custom AI Prompt</div>
+                             <button id="editPromptBtn" type="button" onclick="showPromptEditor()">Edit Custom Prompt</button>
+                             <button type="button" onclick="showPlaceholderHelp()" style="background: var(--muted); margin-left: 8px;">? Help</button>
+                             <div id="promptEditorContainer" style="display: none; margin-top: 12px;">
+                                 <textarea id="customPromptTextarea" style="width: 100%; min-height: 300px; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; color: var(--text); background: var(--card); border: 1px solid var(--muted); resize: vertical;"></textarea>
+                                 <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                                     <button type="button" onclick="saveCustomPrompt()" style="background: var(--green);">Save Custom Prompt</button>
+                                     <button type="button" onclick="loadDefaultPrompt()" style="background: var(--gold);">Load Default Prompt</button>
+                                     <button type="button" onclick="showPlaceholderHelpInEditor()" style="background: var(--muted);">? Placeholders</button>
+                                     <button type="button" onclick="hidePromptEditor()">Cancel</button>
+                                 </div>
+                             </div>
+                             <div id="promptStatus" style="margin-top: 8px; font-size: 0.9rem; color: var(--muted);">--</div>
+                         </div>
+
+                         <!-- Help Modal -->
+                         <div id="helpModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                             <div style="background: var(--card); color: var(--text); margin: 40px auto; padding: 24px; border-radius: 12px; max-width: 600px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                                     <h2 style="margin: 0; font-size: 1.4rem;">Available Prompt Placeholders</h2>
+                                     <button type="button" onclick="hideHelpModal()" style="background: var(--red); padding: 8px 12px; border: none; color: white; cursor: pointer; border-radius: 4px;">?</button>
+                                 </div>
+
+                                 <p style="color: var(--muted); margin-bottom: 16px;">Use these placeholders in your custom prompt. They will be automatically replaced with live data:</p>
+
+                                 <div style="background: var(--bg); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-family: monospace; font-size: 0.85rem; line-height: 1.8;">
+                                     <div><strong>{{forecastHours}}</strong><br><span style="color: var(--muted);">Number of hours to forecast (e.g., 12)</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}</strong><br><span style="color: var(--muted);">Current date and time with timezone</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{soc}}</strong><br><span style="color: var(--muted);">Battery State of Charge percentage (e.g., 57.9)</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{kwhBudgetSummary}}</strong><br><span style="color: var(--muted);">Energy budget details (stored kWh, usable, needed)</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{batteryPower}}</strong><br><span style="color: var(--muted);">Current battery power flow with unit (charging/discharging)</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{homePower}}</strong><br><span style="color: var(--muted);">Current household load (e.g., 644.0 W)</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{gridStatus}}</strong><br><span style="color: var(--muted);">Grid connection status (e.g., "On grid" or "Off grid")</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{generalSummary}}</strong><br><span style="color: var(--muted);">Import price and forecast</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{feedInSummary}}</strong><br><span style="color: var(--muted);">Export (feed-in) price and forecast</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{weatherSummary}}</strong><br><span style="color: var(--muted);">Weather outlook</span></div>
+                                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                     <div><strong>{{solarSummary}}</strong><br><span style="color: var(--muted);">Solar forecast (Solcast)</span></div>
+                                 </div>
+
+                                 <div style="background: rgba(251, 191, 36, 0.2); border: 1px solid var(--gold); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                                     <strong style="color: var(--gold);">?? Example:</strong>
+                                     <pre style="margin: 8px 0; color: var(--text); font-size: 0.85rem;">Current time: {{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}
+            Battery SOC: {{soc}}%
+            Grid Status: {{gridStatus}}
+            Import Price: {{generalSummary}}
+            Export Price: {{feedInSummary}}</pre>
+                                 </div>
+
+                                 <button type="button" onclick="hideHelpModal()" style="background: var(--accent); color: #0f172a; padding: 10px 18px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%;">Close</button>
+                             </div>
+                         </div>
 
             <div class="card" style="margin-bottom: 16px;">
                 <div class="label">Latest AI Prompt Sent</div>
@@ -339,6 +398,26 @@
             document.getElementById('promptStatus').textContent = 'Clear the text and save to use the default prompt.';
             document.getElementById('promptStatus').style.color = 'var(--muted)';
         }
+
+        function showPlaceholderHelp() {
+            document.getElementById('helpModal').style.display = 'block';
+        }
+
+        function showPlaceholderHelpInEditor() {
+            showPlaceholderHelp();
+        }
+
+        function hideHelpModal() {
+            document.getElementById('helpModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('helpModal');
+            if (event.target === modal) {
+                hideHelpModal();
+            }
+        });
 
         async function triggerRun() {
             document.getElementById('runBtn').disabled = true;
