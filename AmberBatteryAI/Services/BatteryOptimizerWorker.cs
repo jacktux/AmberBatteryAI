@@ -10,8 +10,14 @@ public class BatteryOptimizerWorker(
     IHttpClientFactory httpClientFactory,
     IConfiguration config,
     OptimizerState state,
+    DecisionHistoryService history,
     ILogger<BatteryOptimizerWorker> logger) : BackgroundService
 {
+    private const string DefaultAiModel = "gemini-3.5-flash-lite";
+
+    // The run in progress, kept so a failure part-way through can still be logged with its context.
+    private DecisionLogEntry? _pending;
+
     private const string OutputInstructions = """
         OUTPUT:
         Respond with a single JSON object only. No markdown, no text outside the JSON.
@@ -50,6 +56,16 @@ public class BatteryOptimizerWorker(
             {
                 logger.LogError(ex, "Error during optimization cycle.");
                 state.RecordError(ex.Message);
+
+                if (!stoppingToken.IsCancellationRequested)
+                {
+                    var failed = (_pending ?? new DecisionLogEntry { Timestamp = DateTimeOffset.Now }) with
+                    {
+                        Outcome = DecisionOutcome.Error,
+                        Note = ex.Message
+                    };
+                    await RecordDecisionAsync(failed, stoppingToken);
+                }
             }
             finally
             {
@@ -71,8 +87,30 @@ public class BatteryOptimizerWorker(
         }
     }
 
+    private async Task RecordDecisionAsync(DecisionLogEntry entry, CancellationToken ct)
+    {
+        history.Append(entry);
+
+        try
+        {
+            string entityId = config["HomeAssistant:DecisionSensorEntity"] ?? "sensor.battery_ai_decision";
+            using var publishCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            publishCts.CancelAfter(TimeSpan.FromSeconds(15));
+            await DecisionPublisher.PublishAsync(CreateHaClient(), entityId, entry, publishCts.Token);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not publish the AI decision to Home Assistant history.");
+        }
+    }
+
+    private static string F(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+
     private async Task RunOptimizationCycleAsync(CancellationToken ct)
     {
+        var entry = new DecisionLogEntry { Timestamp = DateTimeOffset.Now, Model = config["AiProvider:Model"] ?? DefaultAiModel };
+        _pending = entry;
+
         var haClient = CreateHaClient();
         int forecastHours = config.GetValue("Optimizer:ForecastHours", 12);
 
@@ -102,6 +140,20 @@ public class BatteryOptimizerWorker(
             logger.LogInformation(
                 "Skipping AI optimization because grid status is {GridStatus}.",
                 gridStatus);
+
+            await RecordDecisionAsync(entry with
+            {
+                Outcome = DecisionOutcome.Skipped,
+                Note = $"Grid status is '{gridStatus}', not 'On grid'; settings left unchanged.",
+                Inputs = new DecisionInputs
+                {
+                    Soc = soc,
+                    BatteryPower = batteryPower,
+                    HomePower = homePower,
+                    HotWaterTemp = hotWaterTemp,
+                    GridStatus = gridStatus
+                }
+            }, ct);
             return;
         }
 
@@ -142,6 +194,31 @@ public class BatteryOptimizerWorker(
 
         var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, feedInEntity, forecastHours, ct);
 
+        _pending = entry = entry with
+        {
+            Inputs = new DecisionInputs
+            {
+                Soc = soc,
+                BatteryPower = batteryPower,
+                HomePower = homePower,
+                HotWaterTemp = hotWaterTemp,
+                GridStatus = gridStatus,
+                RemainingSolarKwh = remainingSolarKwh,
+                ImportPriceAndForecast = generalSummary,
+                FeedInPriceAndForecast = feedInSummary,
+                WeatherOutlook = weatherSummary,
+                SolarForecast = solarSummary
+            },
+            Computed = new DecisionComputed
+            {
+                FloorKwh = floorKwh,
+                SurplusKwh = surplusKwh,
+                BestFeedInWindow = bestWindow,
+                SuggestedExportPrice = suggestedExportPrice,
+                AverageLoadKw = avgLoadKw
+            }
+        };
+
         // Load custom prompt if configured, otherwise use default
         string? customPrompt = state.GetCustomPrompt();
         string prompt;
@@ -156,9 +233,22 @@ public class BatteryOptimizerWorker(
         }
 
         prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
+        _pending = entry = entry with { Prompt = prompt };
 
         var decision = await GetAiDecisionAsync(prompt, ct);
-        if (decision is null) return;
+        if (decision is null)
+        {
+            await RecordDecisionAsync(entry with
+            {
+                Outcome = DecisionOutcome.NoDecision,
+                Note = "The AI returned an empty response; settings left unchanged."
+            }, ct);
+            return;
+        }
+
+        var aiDecision = decision;
+        var overrides = new List<string>();
+        _pending = entry = entry with { AiResponse = aiDecision };
 
         bool floorParsed = double.TryParse(floorKwh, NumberStyles.Float, CultureInfo.InvariantCulture, out double floorKwhValue) && batteryCapacityKwh > 0;
         double floorSoc = floorParsed
@@ -182,6 +272,7 @@ public class BatteryOptimizerWorker(
         if (feedInSpike)
         {
             decision = decision with { ExportStopSoc = Math.Max(20.0, decision.ExportStopSoc) };
+            overrides.Add($"Feed-in spike (${F(currentFeedIn)}/kWh): computed export price and stop SOC not applied.");
         }
         else if (floorParsed && double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double suggestedPrice))
         {
@@ -190,11 +281,17 @@ public class BatteryOptimizerWorker(
                 ExportPrice = suggestedPrice,
                 ExportStopSoc = Math.Min(100.0, floorSoc + 2)
             };
+
+            if (Math.Abs(decision.ExportPrice - aiDecision.ExportPrice) > 0.0005)
+                overrides.Add($"export_price {F(aiDecision.ExportPrice)} -> {F(decision.ExportPrice)} (computed)");
+            if (Math.Abs(decision.ExportStopSoc - aiDecision.ExportStopSoc) > 0.5)
+                overrides.Add($"export_stop_soc {F(aiDecision.ExportStopSoc)} -> {F(decision.ExportStopSoc)} (computed floor + 2)");
         }
         else
         {
             logger.LogWarning("Floor ('{Floor}') or suggested export price ('{Suggested}') unavailable; disabling export.", floorKwh, suggestedExportPrice);
             decision = decision with { ExportPrice = 9.99 };
+            overrides.Add("export_price 9.99: export disabled because the floor or suggested export price was unavailable.");
         }
 
         double minExpPrice = config.GetValue("Optimizer:MinExportPrice", 0.08);
@@ -217,10 +314,53 @@ public class BatteryOptimizerWorker(
         double safeImportStopSoc = Math.Round(Math.Clamp(decision.ImportStopSoc, minImpSoc, maxImpSoc), 0);
         double safeImportLimit = Math.Round(Math.Clamp(decision.ImportPowerLimit, 1000, maxWatts), 0);
 
+        void NoteLimit(string name, double before, double after, double tolerance)
+        {
+            if (Math.Abs(before - after) > tolerance)
+                overrides.Add($"{name} {F(before)} -> {F(after)} (limit)");
+        }
+
+        NoteLimit("export_price", decision.ExportPrice, safeExportPrice, 0.0005);
+        NoteLimit("export_stop_soc", decision.ExportStopSoc, safeExportStopSoc, 0.5);
+        NoteLimit("export_power_limit", decision.ExportPowerLimit, safeExportLimit, 0.5);
+        NoteLimit("import_price", decision.ImportPrice, safeImportPrice, 0.005);
+        NoteLimit("import_stop_soc", decision.ImportStopSoc, safeImportStopSoc, 0.5);
+        NoteLimit("import_power_limit", decision.ImportPowerLimit, safeImportLimit, 0.5);
+
         if (safeImportPrice >= safeExportPrice - 0.05)
         {
+            double requestedImportPrice = safeImportPrice;
             safeImportPrice = Math.Round(safeExportPrice - 0.10, 2);
+            overrides.Add($"import_price {F(requestedImportPrice)} -> {F(safeImportPrice)} (must stay $0.05 below export_price)");
         }
+
+        string? hotWaterOption = NormalizeHotWaterOption(decision.HotWater);
+        if (hotWaterOption is not null
+            && double.TryParse(hotWaterTemp.Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double tankC))
+        {
+            string guarded = tankC >= 60 ? "Off" : (tankC >= 55 && hotWaterOption == "Full" ? "Minimal" : hotWaterOption);
+            if (guarded != hotWaterOption)
+            {
+                logger.LogInformation("Hot water overridden {From} -> {To} (tank {Temp} C).", hotWaterOption, guarded, tankC);
+                overrides.Add($"hot_water {hotWaterOption} -> {guarded} (tank {F(tankC)} C)");
+                hotWaterOption = guarded;
+            }
+        }
+
+        _pending = entry = entry with
+        {
+            Overrides = overrides,
+            Applied = new DecisionApplied
+            {
+                ExportPrice = safeExportPrice,
+                ExportStopSoc = safeExportStopSoc,
+                ExportPowerLimit = safeExportLimit,
+                ImportPrice = safeImportPrice,
+                ImportStopSoc = safeImportStopSoc,
+                ImportPowerLimit = safeImportLimit,
+                HotWater = hotWaterOption
+            }
+        };
 
         logger.LogInformation(
             "AI Decision -> Export: >=${ExpPrice} down to {ExpSoc}% @ {ExpW}W | Import: <=${ImpPrice} up to {ImpSoc}% @ {ImpW}W | Reason: {Reason}",
@@ -236,17 +376,6 @@ public class BatteryOptimizerWorker(
         await SetInputNumberAsync(haClient, "input_number.import_stop_soc", safeImportStopSoc, ct);
         await SetInputNumberAsync(haClient, "input_number.import_power_limit", safeImportLimit, ct);
 
-        string? hotWaterOption = NormalizeHotWaterOption(decision.HotWater);
-        if (hotWaterOption is not null
-            && double.TryParse(hotWaterTemp.Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double tankC))
-        {
-            string guarded = tankC >= 60 ? "Off" : (tankC >= 55 && hotWaterOption == "Full" ? "Minimal" : hotWaterOption);
-            if (guarded != hotWaterOption)
-            {
-                logger.LogInformation("Hot water overridden {From} -> {To} (tank {Temp} C).", hotWaterOption, guarded, tankC);
-                hotWaterOption = guarded;
-            }
-        }
         if (hotWaterOption is not null)
         {
             await SetInputSelectAsync(haClient, hotWaterModeEntity, hotWaterOption, ct);
@@ -269,6 +398,8 @@ public class BatteryOptimizerWorker(
                 decision.Reasoning),
             telemetrySnapshot,
             prompt);
+
+        await RecordDecisionAsync(entry with { Outcome = DecisionOutcome.Applied }, ct);
     }
 
     private HttpClient CreateHaClient()
@@ -918,7 +1049,7 @@ public class BatteryOptimizerWorker(
 
         string endpoint = config["AiProvider:Endpoint"] ?? "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
         string apiKey = config["AiProvider:ApiKey"] ?? throw new InvalidOperationException("AiProvider:ApiKey is missing.");
-        string model = config["AiProvider:Model"] ?? "gemini-3.5-flash-lite";
+        string model = config["AiProvider:Model"] ?? DefaultAiModel;
 
         if (!string.IsNullOrWhiteSpace(apiKey) && apiKey != "none")
         {
@@ -968,6 +1099,13 @@ public class BatteryOptimizerWorker(
             .GetProperty("content")
             .GetString()!;
 
-        return JsonSerializer.Deserialize<OptimizerDecision>(content);
+        try
+        {
+            return JsonSerializer.Deserialize<OptimizerDecision>(content);
+        }
+        catch (JsonException ex)
+        {
+            throw new JsonException($"Could not parse the AI response as a decision: '{content}'", ex);
+        }
     }
 }

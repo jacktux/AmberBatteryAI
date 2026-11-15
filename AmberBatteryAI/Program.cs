@@ -1,3 +1,4 @@
+using System.Text;
 using AmberBatteryAI.Services;
 using Microsoft.AspNetCore.HttpOverrides;
 
@@ -6,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<PromptStorageService>();
+builder.Services.AddSingleton<DecisionHistoryService>();
 builder.Services.AddSingleton<OptimizerState>();
 builder.Services.AddHostedService<BatteryOptimizerWorker>();
 
@@ -44,6 +46,23 @@ app.MapPost("/api/run-now", (OptimizerState state) =>
         return Results.BadRequest("OptimizerState is not available.");
     state.TriggerImmediateRun();
     return Results.Accepted();
+});
+
+// Saved AI decisions: format=json (default), csv (summary for spreadsheets) or jsonl (everything, including prompts).
+app.MapGet("/api/decisions", (DecisionHistoryService history, int? days, int? limit, string? format) =>
+{
+    var entries = history.Read(days ?? 7, limit);
+
+    switch (format?.ToLowerInvariant())
+    {
+        case "csv":
+            var csv = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(DecisionHistoryService.ToCsv(entries))).ToArray();
+            return Results.File(csv, "text/csv; charset=utf-8", "ai-decisions.csv");
+        case "jsonl":
+            return Results.File(Encoding.UTF8.GetBytes(DecisionHistoryService.ToJsonLines(entries)), "application/x-ndjson", "ai-decisions.jsonl");
+        default:
+            return Results.Ok(entries);
+    }
 });
 
 app.MapGet("/api/prompt", (OptimizerState state) =>
