@@ -240,7 +240,7 @@ public class BatteryOptimizerWorker(
         if (hotWaterOption is not null
             && double.TryParse(hotWaterTemp.Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double tankC))
         {
-            string guarded = tankC >= 60 ? "OFF" : (tankC >= 55 && hotWaterOption == "FULL" ? "MINIMAL" : hotWaterOption);
+            string guarded = tankC >= 60 ? "Off" : (tankC >= 55 && hotWaterOption == "Full" ? "Minimal" : hotWaterOption);
             if (guarded != hotWaterOption)
             {
                 logger.LogInformation("Hot water overridden {From} -> {To} (tank {Temp} C).", hotWaterOption, guarded, tankC);
