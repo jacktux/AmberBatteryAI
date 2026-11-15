@@ -197,7 +197,7 @@ public class BatteryOptimizerWorker(
             decision = decision with { ExportPrice = 9.99 };
         }
 
-        double minExpPrice = config.GetValue("Optimizer:MinExportPrice", 0.15);
+        double minExpPrice = config.GetValue("Optimizer:MinExportPrice", 0.08);
         double maxExpPrice = config.GetValue("Optimizer:MaxExportPrice", 5.00);
         double minExpSoc = config.GetValue("Optimizer:MinExportStopSoc", 20.0);
         double maxExpSoc = config.GetValue("Optimizer:MaxExportStopSoc", 95.0);
@@ -209,7 +209,7 @@ public class BatteryOptimizerWorker(
 
         double maxWatts = config.GetValue("Optimizer:MaxPowerWatts", 10000.0);
 
-        double safeExportPrice = Math.Round(Math.Clamp(decision.ExportPrice, minExpPrice, maxExpPrice), 2);
+        double safeExportPrice = Math.Round(Math.Clamp(decision.ExportPrice, minExpPrice, maxExpPrice), 3);
         double safeExportStopSoc = Math.Round(Math.Clamp(decision.ExportStopSoc, minExpSoc, maxExpSoc), 0);
         double safeExportLimit = Math.Round(Math.Clamp(decision.ExportPowerLimit, 1000, maxWatts), 0);
 

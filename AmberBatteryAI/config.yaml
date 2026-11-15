@@ -29,7 +29,7 @@ options:
   solar_forecast_remaining_entity: "sensor.solcast_pv_forecast_forecast_remaining_today"
   interval_minutes: 30
   forecast_hours: 12
-  min_export_price: 0.15
+  min_export_price: 0.08
   max_export_price: 5.00
   min_export_stop_soc: 20
   max_export_stop_soc: 95
