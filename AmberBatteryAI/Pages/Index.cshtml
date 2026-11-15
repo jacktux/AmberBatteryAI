@@ -269,7 +269,18 @@
                     <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
 
                     <div><strong>{{hotWaterTemp}}</strong><br><span style="color: var(--muted);">Hot water tank temperature (e.g., 52.3 °C)</span></div>
-                </div>
+                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                    <div><strong>{{floorKwh}}</strong><br><span style="color: var(--muted);">Battery floor energy in kWh (20% reserve)</span></div>
+                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                    <div><strong>{{surplusKwh}}</strong><br><span style="color: var(--muted);">Stored energy above the floor in kWh</span></div>
+                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                    <div><strong>{{bestWindow}}</strong><br><span style="color: var(--muted);">Highest feed-in price interval in the forecast</span></div>
+                                                          <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                                                          <div><strong>{{suggestedExportPrice}}</strong><br><span style="color: var(--muted);">Suggested export price: best 1-hour feed-in average, 10% haircut if more than 4 hours away, minus $0.01</span></div>
 
                 <div style="background: rgba(251, 191, 36, 0.2); border: 1px solid var(--gold); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
                     <strong style="color: var(--gold);">?? Example:</strong>

@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AmberBatteryAI.Models;
@@ -29,8 +30,8 @@ public class BatteryOptimizerWorker(
         - export_price and import_price are in $/kWh.
         - export_stop_soc and import_stop_soc are percentages between 0 and 100.
         - export_power_limit and import_power_limit are in watts.
-        - hot_water is the Rule 8 result.
-        - reasoning must cover the 5 items in DECISION PROCESS, in 150 words or fewer.
+        - hot_water is the HOT WATER section result.
+        - reasoning must cover the 5 DECISION STEPS in 150 words or fewer.
         """;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -127,23 +128,74 @@ public class BatteryOptimizerWorker(
             kwhBudgetSummary = $"{storedKwh} kWh stored of {batteryCapacityKwh} kWh total ({usableAboveReserveKwh} kWh usable above 20% floor; {neededToFullKwh} kWh needed to reach 100%)";
         }
 
+        double avgLoadKw = config.GetValue("Optimizer:AverageLoadKw", 0.75);
+        double remainingSolarKwh = 0;
+        try
+        {
+            string remainingSolarState = await GetEntityStateAsync(haClient, remainingSolarEntity, ct);
+            double.TryParse(remainingSolarState, NumberStyles.Float, CultureInfo.InvariantCulture, out remainingSolarKwh);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read remaining solar for floor calculation; assuming 0 kWh.");
+        }
+
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, feedInEntity, forecastHours, ct);
+
         // Load custom prompt if configured, otherwise use default
         string? customPrompt = state.GetCustomPrompt();
         string prompt;
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
             // Use custom prompt but interpolate live telemetry variables
-            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp);
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice);
         }
         else
         {
-            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp);
+            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice);
         }
 
         prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
 
         var decision = await GetAiDecisionAsync(prompt, ct);
         if (decision is null) return;
+
+        bool floorParsed = double.TryParse(floorKwh, NumberStyles.Float, CultureInfo.InvariantCulture, out double floorKwhValue) && batteryCapacityKwh > 0;
+        double floorSoc = floorParsed
+            ? Math.Max(20.0, floorKwhValue / batteryCapacityKwh * 100.0)
+            : 20.0;
+
+        string currentFeedInState;
+        try
+        {
+            currentFeedInState = await GetEntityStateAsync(haClient, feedInEntity, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read current feed-in price for spike check.");
+            currentFeedInState = "unknown";
+        }
+
+        bool feedInSpike = double.TryParse(currentFeedInState, NumberStyles.Float, CultureInfo.InvariantCulture, out double currentFeedIn)
+            && currentFeedIn > 1.00;
+
+        if (feedInSpike)
+        {
+            decision = decision with { ExportStopSoc = Math.Max(20.0, decision.ExportStopSoc) };
+        }
+        else if (floorParsed && double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double suggestedPrice))
+        {
+            decision = decision with
+            {
+                ExportPrice = suggestedPrice,
+                ExportStopSoc = Math.Min(100.0, floorSoc + 2)
+            };
+        }
+        else
+        {
+            logger.LogWarning("Floor ('{Floor}') or suggested export price ('{Suggested}') unavailable; disabling export.", floorKwh, suggestedExportPrice);
+            decision = decision with { ExportPrice = 9.99 };
+        }
 
         double minExpPrice = config.GetValue("Optimizer:MinExportPrice", 0.15);
         double maxExpPrice = config.GetValue("Optimizer:MaxExportPrice", 5.00);
@@ -310,14 +362,13 @@ public class BatteryOptimizerWorker(
             .GroupBy(x =>
             {
                 int bucketMinutes = x.LocalTime < fineCutoff ? 5 : 30;
-                var start = new DateTime(x.LocalTime.Year, x.LocalTime.Month, x.LocalTime.Day, x.LocalTime.Hour, (x.LocalTime.Minute / bucketMinutes) * bucketMinutes, 0);
-                return (Fine: bucketMinutes == 5, Start: start);
+                return new DateTime(x.LocalTime.Year, x.LocalTime.Month, x.LocalTime.Day, x.LocalTime.Hour, (x.LocalTime.Minute / bucketMinutes) * bucketMinutes, 0);
             })
             .Select(g =>
             {
                 double avg = Math.Round(g.Average(x => x.Value), 3);
                 double max = Math.Round(g.Max(x => x.Value), 3);
-                string label = g.Key.Start.ToString("HH:mm");
+                string label = g.Key.ToString("HH:mm");
 
                 return (max - avg) >= 0.05
                     ? $"{label}=avg${avg}/max${max}"
@@ -409,6 +460,118 @@ public class BatteryOptimizerWorker(
         {
             logger?.LogWarning(ex, "Failed to fetch weather forecast for {Entity}", entityId);
             return "unavailable";
+        }
+    }
+
+    private static async Task<(string FloorKwh, string SurplusKwh, string BestWindow, string SuggestedExportPrice)> BuildComputedValuesAsync(
+        HttpClient client,
+        string soc,
+        double batteryCapacityKwh,
+        double remainingSolarKwh,
+        double avgLoadKw,
+        string feedInEntity,
+        int hoursAhead,
+        CancellationToken ct)
+    {
+        if (!double.TryParse(soc, out double socPct))
+            return ("unknown", "unknown", "unknown", "unknown");
+
+        double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
+        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, DateTime.Now);
+        double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
+        var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, ct);
+
+        return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested);
+    }
+
+    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, DateTime localNow)
+    {
+        double minKwh = capacityKwh * 0.20;
+        double highKwh = capacityKwh * 0.60;
+        double lowKwh = capacityKwh * 0.30;
+        double hour = localNow.TimeOfDay.TotalHours;
+
+        double floor;
+        if (hour >= 6 && hour < 18)
+        {
+            double hoursTo18 = 18 - hour;
+            double netSolarKwh = remainingSolarKwh * 0.9 - avgLoadKw * hoursTo18;
+            floor = Math.Max(minKwh, highKwh - Math.Max(netSolarKwh, 0));
+        }
+        else
+        {
+            double hoursTo0600 = hour >= 18 ? (24 - hour) + 6 : 6 - hour;
+            floor = Math.Max(minKwh, lowKwh + avgLoadKw * hoursTo0600);
+        }
+
+        return Math.Round(Math.Min(floor, capacityKwh), 2);
+    }
+
+    private static async Task<(string Window, string Suggested)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, CancellationToken ct)
+    {
+        try
+        {
+            var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{feedInEntity}", ct);
+            if (!json.TryGetProperty("attributes", out var attrs) ||
+                !attrs.TryGetProperty("forecast", out var forecastArray) ||
+                forecastArray.ValueKind != JsonValueKind.Array)
+            {
+                return ("unknown", "unknown");
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var cutoff = now.AddHours(hoursAhead);
+            var slots = new List<(DateTimeOffset Time, double Value)>();
+
+            foreach (var item in forecastArray.EnumerateArray())
+            {
+                if (!item.TryGetProperty("time", out var timeProp) ||
+                    !DateTimeOffset.TryParse(timeProp.GetString(), out var parsedTime))
+                    continue;
+
+                if (parsedTime < now)
+                    continue;
+                if (parsedTime > cutoff)
+                    break;
+
+                double val = 0;
+                if (item.TryGetProperty("value", out var valProp))
+                {
+                    if (valProp.ValueKind == JsonValueKind.Number)
+                        val = valProp.GetDouble();
+                    else if (valProp.ValueKind == JsonValueKind.String)
+                        double.TryParse(valProp.GetString(), out val);
+                }
+
+                slots.Add((parsedTime, val));
+            }
+
+            if (slots.Count == 0)
+                return ("unknown", "unknown");
+
+            DateTimeOffset bestStart = slots[0].Time;
+            double bestAvg = double.MinValue;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                int count = i + 1 < slots.Count ? 2 : 1;
+                double avg = slots.GetRange(i, count).Average(s => s.Value);
+                if (avg > bestAvg)
+                {
+                    bestAvg = avg;
+                    bestStart = slots[i].Time;
+                }
+            }
+
+            double hoursUntil = (bestStart - now).TotalHours;
+            double haircut = hoursUntil > 4 ? 0.90 : 1.00;
+            double suggested = Math.Round(bestAvg * haircut - 0.01, 3);
+
+            string window = $"{bestStart.ToLocalTime():HH:mm} @ ${Math.Round(bestAvg, 3)}/kWh";
+            return (window, suggested.ToString("0.000"));
+        }
+        catch
+        {
+            return ("unavailable", "unavailable");
         }
     }
 
@@ -512,7 +675,11 @@ public class BatteryOptimizerWorker(
         string feedInSummary,
         string weatherSummary,
         string solarSummary,
-        string hotWaterTemp)
+        string hotWaterTemp,
+        string floorKwh,
+        string surplusKwh,
+        string bestWindow,
+        string suggestedExportPrice)
     {
         return $$"""
                 You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
@@ -672,6 +839,12 @@ public class BatteryOptimizerWorker(
                 - Solar Forecast (Solcast): {{solarSummary}}
                 - Hot Water Tank Temperature: {{hotWaterTemp}}
 
+                COMPUTED VALUES (calculated by the system; trust these, do not recompute them)
+                - floor_kWh = {{floorKwh}}
+                - surplus_kWh = {{surplusKwh}}
+                - best_feed_in_window = {{bestWindow}}
+                - suggested_export_price = {{suggestedExportPrice}}
+
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
                 """;
     }
@@ -688,7 +861,11 @@ public class BatteryOptimizerWorker(
         string feedInSummary,
         string weatherSummary,
         string solarSummary,
-        string hotWaterTemp)
+        string hotWaterTemp,
+        string floorKwh,
+        string surplusKwh,
+        string bestWindow,
+        string suggestedExportPrice)
     {
         // Create a dictionary
         var replacements = new Dictionary<string, string>
@@ -704,7 +881,11 @@ public class BatteryOptimizerWorker(
                         { "{{feedInSummary}}", feedInSummary },
                         { "{{weatherSummary}}", weatherSummary },
                         { "{{solarSummary}}", solarSummary },
-                        { "{{hotWaterTemp}}", hotWaterTemp }
+                        { "{{hotWaterTemp}}", hotWaterTemp },
+                        { "{{floorKwh}}", floorKwh },
+                        { "{{surplusKwh}}", surplusKwh },
+                        { "{{bestWindow}}", bestWindow },
+                        { "{{suggestedExportPrice}}", suggestedExportPrice }
                     };
 
         string result = customPrompt;
