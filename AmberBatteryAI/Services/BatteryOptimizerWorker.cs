@@ -494,6 +494,10 @@ public class BatteryOptimizerWorker(
         return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested);
     }
 
+    // Conservative daytime assumptions: solar haircut for forecast error and a higher daytime load.
+    private const double SolarConfidence = 0.6;
+    private const double DaytimeLoadKw = 1.5;
+
     private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, DateTime localNow)
     {
         double minKwh = capacityKwh * 0.20;
@@ -505,7 +509,7 @@ public class BatteryOptimizerWorker(
         if (hour >= 6 && hour < 18)
         {
             double hoursTo18 = 18 - hour;
-            double netSolarKwh = remainingSolarKwh * 0.9 - avgLoadKw * hoursTo18;
+            double netSolarKwh = remainingSolarKwh * 0.9 * SolarConfidence - Math.Max(avgLoadKw, DaytimeLoadKw) * hoursTo18;
             floor = Math.Max(minKwh, highKwh - Math.Max(netSolarKwh, 0));
         }
         else
