@@ -240,7 +240,7 @@ public class BatteryOptimizerWorker(
         if (hotWaterOption is not null
             && double.TryParse(hotWaterTemp.Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double tankC))
         {
-            string guarded = tankC >= 60 ? "OFF" : (tankC >= 45 && hotWaterOption == "FULL" ? "MINIMAL" : hotWaterOption);
+            string guarded = tankC >= 60 ? "OFF" : (tankC >= 55 && hotWaterOption == "FULL" ? "MINIMAL" : hotWaterOption);
             if (guarded != hotWaterOption)
             {
                 logger.LogInformation("Hot water overridden {From} -> {To} (tank {Temp} C).", hotWaterOption, guarded, tankC);
@@ -821,7 +821,7 @@ public class BatteryOptimizerWorker(
 
                 Set hot_water to exactly one of OFF, MINIMAL, or FULL using the Hot Water Tank Temperature in the telemetry below:
                 - OFF when the tank is at or above 60�C, or when the import price is above $0.25/kWh and the tank is at or above 45�C.
-                - FULL when the tank is below 45�C and solar is forecast to be in surplus, or when the import price is below $0.00/kWh.
+                - FULL when the tank is below 55�C and solar is forecast to be in surplus, or when the import price is below $0.00/kWh.
                 - MINIMAL in all other cases, including when the tank temperature is unknown.
 
                 DECISION PROCESS:
