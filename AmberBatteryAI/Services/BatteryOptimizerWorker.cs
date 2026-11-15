@@ -106,6 +106,31 @@ public class BatteryOptimizerWorker(
 
     private static string F(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 
+    private HotWaterPlanner.FullAssessment AssessFullHotWater(
+        string soc,
+        string hotWaterTemp,
+        string importPriceState,
+        double capacityKwh,
+        double remainingSolarKwh,
+        double avgLoadKw)
+    {
+        static double? ParseFinite(string text) =>
+            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value : null;
+
+        double hour = DateTime.Now.TimeOfDay.TotalHours;
+        double netSolarKwh = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, Math.Max(0, 18 - hour));
+        double kwhPerDegC = config.GetValue("Optimizer:HotWaterKwhPerDegC", 0.2);
+
+        return HotWaterPlanner.AssessFull(
+            ParseFinite(hotWaterTemp.Split(' ')[0]),
+            ParseFinite(soc),
+            capacityKwh,
+            netSolarKwh,
+            kwhPerDegC,
+            hour,
+            ParseFinite(importPriceState));
+    }
+
     private async Task RunOptimizationCycleAsync(CancellationToken ct)
     {
         var entry = new DecisionLogEntry { Timestamp = DateTimeOffset.Now, Model = config["AiProvider:Model"] ?? DefaultAiModel };
@@ -192,7 +217,20 @@ public class BatteryOptimizerWorker(
             logger.LogWarning(ex, "Could not read remaining solar for floor calculation; assuming 0 kWh.");
         }
 
-        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, feedInEntity, forecastHours, ct);
+        string currentImportState;
+        try
+        {
+            currentImportState = await GetEntityStateAsync(haClient, generalEntity, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read current import price for the hot water check.");
+            currentImportState = "unknown";
+        }
+
+        var hotWaterFull = AssessFullHotWater(soc, hotWaterTemp, currentImportState, batteryCapacityKwh, remainingSolarKwh, avgLoadKw);
+
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, feedInEntity, forecastHours, ct);
 
         _pending = entry = entry with
         {
@@ -215,6 +253,7 @@ public class BatteryOptimizerWorker(
                 SurplusKwh = surplusKwh,
                 BestFeedInWindow = bestWindow,
                 SuggestedExportPrice = suggestedExportPrice,
+                HotWaterFull = hotWaterFull.Text,
                 AverageLoadKw = avgLoadKw
             }
         };
@@ -225,11 +264,11 @@ public class BatteryOptimizerWorker(
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
             // Use custom prompt but interpolate live telemetry variables
-            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice);
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text);
         }
         else
         {
-            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice);
+            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text);
         }
 
         prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
@@ -335,16 +374,17 @@ public class BatteryOptimizerWorker(
         }
 
         string? hotWaterOption = NormalizeHotWaterOption(decision.HotWater);
-        if (hotWaterOption is not null
-            && double.TryParse(hotWaterTemp.Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double tankC))
+        if (hotWaterFull.Ok && hotWaterOption != "Full")
         {
-            string guarded = tankC >= 60 ? "Off" : (tankC >= 55 && hotWaterOption == "Full" ? "Minimal" : hotWaterOption);
-            if (guarded != hotWaterOption)
-            {
-                logger.LogInformation("Hot water overridden {From} -> {To} (tank {Temp} C).", hotWaterOption, guarded, tankC);
-                overrides.Add($"hot_water {hotWaterOption} -> {guarded} (tank {F(tankC)} C)");
-                hotWaterOption = guarded;
-            }
+            logger.LogInformation("Hot water set to Full (80 C): {Detail}", hotWaterFull.Detail);
+            overrides.Add($"hot_water {hotWaterOption ?? "unset"} -> Full ({hotWaterFull.Detail})");
+            hotWaterOption = "Full";
+        }
+        else if (!hotWaterFull.Ok && hotWaterOption == "Full")
+        {
+            logger.LogInformation("Hot water Full overridden to Minimal: {Detail}", hotWaterFull.Detail);
+            overrides.Add($"hot_water Full -> Minimal ({hotWaterFull.Detail})");
+            hotWaterOption = "Minimal";
         }
 
         _pending = entry = entry with
@@ -610,6 +650,7 @@ public class BatteryOptimizerWorker(
         double batteryCapacityKwh,
         double remainingSolarKwh,
         double avgLoadKw,
+        double heatingReserveKwh,
         string feedInEntity,
         int hoursAhead,
         CancellationToken ct)
@@ -618,7 +659,7 @@ public class BatteryOptimizerWorker(
             return ("unknown", "unknown", "unknown", "unknown");
 
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
-        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, DateTime.Now);
+        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
         var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, ct);
 
@@ -629,7 +670,11 @@ public class BatteryOptimizerWorker(
     private const double SolarConfidence = 0.6;
     private const double DaytimeLoadKw = 1.5;
 
-    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, DateTime localNow)
+    // Solar still to come before 18:00 minus the house load until then; negative when the load outweighs the solar.
+    private static double NetSolarKwhUntil18(double remainingSolarKwh, double avgLoadKw, double hoursTo18) =>
+        remainingSolarKwh * 0.9 * SolarConfidence - Math.Max(avgLoadKw, DaytimeLoadKw) * hoursTo18;
+
+    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, double heatingReserveKwh, DateTime localNow)
     {
         double minKwh = capacityKwh * 0.20;
         double highKwh = capacityKwh * 0.60;
@@ -640,7 +685,7 @@ public class BatteryOptimizerWorker(
         if (hour >= 6 && hour < 18)
         {
             double hoursTo18 = 18 - hour;
-            double netSolarKwh = remainingSolarKwh * 0.9 * SolarConfidence - Math.Max(avgLoadKw, DaytimeLoadKw) * hoursTo18;
+            double netSolarKwh = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, hoursTo18) - heatingReserveKwh;
             floor = Math.Max(minKwh, highKwh - Math.Max(netSolarKwh, 0));
         }
         else
@@ -824,7 +869,8 @@ public class BatteryOptimizerWorker(
         string floorKwh,
         string surplusKwh,
         string bestWindow,
-        string suggestedExportPrice)
+        string suggestedExportPrice,
+        string hotWaterFull)
     {
         return $$"""
                 You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
@@ -950,10 +996,12 @@ public class BatteryOptimizerWorker(
 
                 8. HOT WATER
 
+                The hot_water mode sets the tank's target temperature: FULL = 80 degrees C, MINIMAL = 60 degrees C, OFF = no heating.
                 Set hot_water to exactly one of OFF, MINIMAL, or FULL using the Hot Water Tank Temperature in the telemetry below:
-                - OFF when the tank is at or above 60�C, or when the import price is above $0.25/kWh and the tank is at or above 45�C.
-                - FULL when the tank is below 55�C and solar is forecast to be in surplus, or when the import price is below $0.00/kWh.
+                - FULL only when hot_water_full_ok in COMPUTED VALUES starts with YES. The system has already checked the tank temperature, the 11:00-16:00 solar window, the battery SOC and that the 18:00 target still holds after the extra heating. Never choose FULL when it says NO.
+                - OFF when the battery SOC is below 25%, or it is 16:30-21:30, or the average import price over the next 2 hours is above $0.25/kWh and the tank is at or above 45 degrees C, or heating to 60 degrees C would put the 18:00 target at risk.
                 - MINIMAL in all other cases, including when the tank temperature is unknown.
+                - Do not heat from grid energy when the 2 hour average import price is above $0.20/kWh. Solar-powered heating is allowed at any import price.
 
                 DECISION PROCESS:
 
@@ -989,6 +1037,7 @@ public class BatteryOptimizerWorker(
                 - surplus_kWh = {{surplusKwh}}
                 - best_feed_in_window = {{bestWindow}}
                 - suggested_export_price = {{suggestedExportPrice}}
+                - hot_water_full_ok = {{hotWaterFull}}
 
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
                 """;
@@ -1010,7 +1059,8 @@ public class BatteryOptimizerWorker(
         string floorKwh,
         string surplusKwh,
         string bestWindow,
-        string suggestedExportPrice)
+        string suggestedExportPrice,
+        string hotWaterFull)
     {
         // Create a dictionary
         var replacements = new Dictionary<string, string>
@@ -1030,7 +1080,8 @@ public class BatteryOptimizerWorker(
                         { "{{floorKwh}}", floorKwh },
                         { "{{surplusKwh}}", surplusKwh },
                         { "{{bestWindow}}", bestWindow },
-                        { "{{suggestedExportPrice}}", suggestedExportPrice }
+                        { "{{suggestedExportPrice}}", suggestedExportPrice },
+                        { "{{hotWaterFull}}", hotWaterFull }
                     };
 
         string result = customPrompt;

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+- Hot water heats to 80 C (`Full`) on days with enough solar. The system allows `Full` only between 11:00 and 16:00, with the battery at 25% or more, and when the 18:00 battery target (60%) still holds after deducting the energy needed to heat the tank to 80 C. Otherwise the tank stays on `Minimal` (60 C). `Full` is also allowed whenever the import price is negative.
+- `{{hotWaterFull}}` placeholder and a `hot_water_full_ok` line in the computed values (YES or NO, with the reason), also saved in the decision history.
+- `hot_water_kwh_per_deg_c` add-on option (default 0.2): kWh needed to warm the tank by 1 C.
+
+### Changed
+- The code enforces the `Full` decision: the model's `Full` becomes `Minimal` when the check says NO, and `Full` is set when it says YES.
+- While `Full` is allowed, the energy for heating is reserved in the battery floor, so exports cannot use it.
+- The old rules that forced `Off` at 60 C or more and capped `Full` at 55 C are removed (`Minimal` now stops at 60 C and `Full` at 80 C).
+
 ## 1.3.2
 
 ### Added

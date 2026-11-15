@@ -50,6 +50,7 @@ public static class DecisionPublisher
             ["surplus_kwh"] = entry.Computed?.SurplusKwh,
             ["best_feed_in_window"] = entry.Computed?.BestFeedInWindow,
             ["suggested_export_price"] = entry.Computed?.SuggestedExportPrice,
+            ["hot_water_full_check"] = entry.Computed?.HotWaterFull,
             ["ai_export_price"] = entry.AiResponse?.ExportPrice,
             ["ai_hot_water"] = entry.AiResponse?.HotWater,
             ["export_price"] = entry.Applied?.ExportPrice,

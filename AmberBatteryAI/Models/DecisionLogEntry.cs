@@ -45,6 +45,7 @@ public record DecisionComputed
     [JsonPropertyName("surplus_kwh")] public string? SurplusKwh { get; init; }
     [JsonPropertyName("best_feed_in_window")] public string? BestFeedInWindow { get; init; }
     [JsonPropertyName("suggested_export_price")] public string? SuggestedExportPrice { get; init; }
+    [JsonPropertyName("hot_water_full_check")] public string? HotWaterFull { get; init; }
     [JsonPropertyName("average_load_kw")] public double? AverageLoadKw { get; init; }
 }
 
