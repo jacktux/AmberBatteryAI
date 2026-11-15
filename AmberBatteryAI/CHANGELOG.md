@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+### Fixed
+- The battery floor now reserves the energy still needed to heat the hot water tank to 60 C (`Minimal`) whenever `Full` is not allowed, and the energy to reach 80 C when it is. Before this, nothing was reserved outside the 11:00-16:00 window or when `Full` was refused, so the battery could be exported just before the hot water started. The reserve stops at 16:30, when heating stops, and uses the live tank temperature and `hot_water_kwh_per_deg_c`.
+
 ## 1.4.0
 
 ### Added
