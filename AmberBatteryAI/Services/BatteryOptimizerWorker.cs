@@ -31,7 +31,7 @@ public class BatteryOptimizerWorker(
         - export_stop_soc and import_stop_soc are percentages between 0 and 100.
         - export_power_limit and import_power_limit are in watts.
         - hot_water is the HOT WATER section result.
-        - reasoning must cover the 5 DECISION STEPS in 150 words or fewer.
+        - reasoning must cover every DECISION STEP in 180 words or fewer.
         """;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -237,6 +237,16 @@ public class BatteryOptimizerWorker(
         await SetInputNumberAsync(haClient, "input_number.import_power_limit", safeImportLimit, ct);
 
         string? hotWaterOption = NormalizeHotWaterOption(decision.HotWater);
+        if (hotWaterOption is not null
+            && double.TryParse(hotWaterTemp.Split(' ')[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double tankC))
+        {
+            string guarded = tankC >= 60 ? "OFF" : (tankC >= 45 && hotWaterOption == "FULL" ? "MINIMAL" : hotWaterOption);
+            if (guarded != hotWaterOption)
+            {
+                logger.LogInformation("Hot water overridden {From} -> {To} (tank {Temp} C).", hotWaterOption, guarded, tankC);
+                hotWaterOption = guarded;
+            }
+        }
         if (hotWaterOption is not null)
         {
             await SetInputSelectAsync(haClient, hotWaterModeEntity, hotWaterOption, ct);
@@ -780,7 +790,7 @@ public class BatteryOptimizerWorker(
                 Target having at least ~60% SOC at 18:00 (6:00 PM) to cover overnight and next-morning household consumption.
 
                 - Before 18:00: Only export down toward 60% SOC (or lower if solar is still actively recharging it back to 60% by 18:00). Keep any capacity needed to hit 60% at 18:00 in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
-                - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above the 60% overnight reserve (for example, if solar charged the battery to 85–100%) is excess and should be exported during the evening peak at a good feed-in price.
+                - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above the 60% overnight reserve (for example, if solar charged the battery to 85ï¿½100%) is excess and should be exported during the evening peak at a good feed-in price.
                 - Set export_price just below the highest realistic feed-in price that is likely to occur.
                 - Do not discharge too early at a low price when a higher price is forecast soon.
                 - If an extreme feed-in price greater than $2.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve (20%).
@@ -806,8 +816,8 @@ public class BatteryOptimizerWorker(
                 8. HOT WATER
 
                 Set hot_water to exactly one of OFF, MINIMAL, or FULL using the Hot Water Tank Temperature in the telemetry below:
-                - OFF when the tank is at or above 60°C, or when the import price is above $0.25/kWh and the tank is at or above 45°C.
-                - FULL when the tank is below 45°C and solar is forecast to be in surplus, or when the import price is below $0.00/kWh.
+                - OFF when the tank is at or above 60ï¿½C, or when the import price is above $0.25/kWh and the tank is at or above 45ï¿½C.
+                - FULL when the tank is below 45ï¿½C and solar is forecast to be in surplus, or when the import price is below $0.00/kWh.
                 - MINIMAL in all other cases, including when the tank temperature is unknown.
 
                 DECISION PROCESS:
