@@ -28,8 +28,8 @@ public class DecisionHistoryService
         "timestamp", "outcome", "mode", "soc_percent", "battery_power_w", "home_power_w", "hot_water_temp_c",
         "floor_kwh", "surplus_kwh", "best_feed_in_window", "suggested_export_price", "hot_water_full_check",
         "ai_export_price", "ai_export_stop_soc",
-        "export_price", "export_stop_soc", "export_power_limit",
-        "import_price", "import_stop_soc", "import_power_limit",
+        "export_price", "export_stop_soc", "export_start_soc", "export_power_limit",
+        "import_price", "import_stop_soc", "import_start_soc", "import_power_limit",
         "ai_hot_water", "hot_water", "overrides", "note", "reasoning"
     };
 
@@ -139,9 +139,11 @@ public class DecisionHistoryService
                 Num(e.AiResponse?.ExportStopSoc),
                 Num(e.Applied?.ExportPrice),
                 Num(e.Applied?.ExportStopSoc),
+                Num(e.Applied?.ExportStartSoc),
                 Num(e.Applied?.ExportPowerLimit),
                 Num(e.Applied?.ImportPrice),
                 Num(e.Applied?.ImportStopSoc),
+                Num(e.Applied?.ImportStartSoc),
                 Num(e.Applied?.ImportPowerLimit),
                 e.AiResponse?.HotWater,
                 e.Applied?.HotWater,

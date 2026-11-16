@@ -329,6 +329,12 @@
                                                           <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
 
                     <div><strong>{{hotWaterFull}}</strong><br><span style="color: var(--muted);">Whether the system allows hot water FULL (80 C): YES or NO, with the reason</span></div>
+                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                    <div><strong>{{exportStartSoc}}</strong><br><span style="color: var(--muted);">SOC (%) above which the export automation starts: export stop SOC plus the export SOC hysteresis helper</span></div>
+                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
+
+                    <div><strong>{{importMinStopSoc}}</strong><br><span style="color: var(--muted);">Lowest import stop SOC (%) at which charging can start from the current SOC: current SOC plus the import SOC hysteresis helper plus 1</span></div>
 
                                                           <div><strong>{{suggestedExportPrice}}</strong><br><span style="color: var(--muted);">Suggested export price: the price of the forecast slot that completes selling the surplus when the best-priced slots are used at the export power limit, minus $0.01. Forecast prices are discounted from 0% at 4 hours ahead to 20% at 10 hours and beyond.</span></div>
 
@@ -431,10 +437,10 @@
                 if (data.decision) {
                     document.getElementById('mode').textContent = data.decision.mode || 'Unknown';
                     document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
-                    document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC | Max ' + data.decision.exportPowerLimit + 'W';
+                    document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '') + ' | Max ' + data.decision.exportPowerLimit + 'W';
 
                     document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
-                    document.getElementById('importSub').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC | Max ' + data.decision.importPowerLimit + 'W';
+                    document.getElementById('importSub').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '') + ' | Max ' + data.decision.importPowerLimit + 'W';
 
                     document.getElementById('reasoning').textContent = data.decision.reasoning;
                 }

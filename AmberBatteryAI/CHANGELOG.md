@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.1
+
+### Changed
+- The add-on reads `input_number.export_soc_hysteresis` and `input_number.import_soc_hysteresis` (entities configurable with `HomeAssistant:ExportSocHysteresisEntity` and `HomeAssistant:ImportSocHysteresisEntity`; 2% is used if one cannot be read) and uses them in its decisions.
+- The model is told the SOC above which exporting actually starts (`export_start_soc`) and the lowest import stop SOC at which charging can start (`import_min_stop_soc`), and its DISCHARGE and CHARGE choices must respect them.
+- When the model chooses CHARGE, the import stop SOC is raised to at least the current SOC plus the import hysteresis plus 1. Before, a target at or just above the current SOC meant the import automation never started.
+- The export price now plans around the energy that exporting will actually sell (everything above the export stop SOC) instead of everything above the floor, which included about 0.8 kWh that is never sold.
+- The dashboard shows when each automation starts, and the start SOC is saved in the decision history.
+
 ## 1.5.0
 
 ### Changed

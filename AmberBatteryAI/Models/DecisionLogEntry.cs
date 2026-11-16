@@ -46,6 +46,10 @@ public record DecisionComputed
     [JsonPropertyName("best_feed_in_window")] public string? BestFeedInWindow { get; init; }
     [JsonPropertyName("suggested_export_price")] public string? SuggestedExportPrice { get; init; }
     [JsonPropertyName("hot_water_full_check")] public string? HotWaterFull { get; init; }
+    [JsonPropertyName("export_start_soc")] public string? ExportStartSoc { get; init; }
+    [JsonPropertyName("import_min_stop_soc")] public string? ImportMinStopSoc { get; init; }
+    [JsonPropertyName("export_soc_hysteresis")] public double? ExportSocHysteresis { get; init; }
+    [JsonPropertyName("import_soc_hysteresis")] public double? ImportSocHysteresis { get; init; }
     [JsonPropertyName("average_load_kw")] public double? AverageLoadKw { get; init; }
 }
 
@@ -54,9 +58,11 @@ public record DecisionApplied
 {
     [JsonPropertyName("export_price")] public double ExportPrice { get; init; }
     [JsonPropertyName("export_stop_soc")] public double ExportStopSoc { get; init; }
+    [JsonPropertyName("export_start_soc")] public double? ExportStartSoc { get; init; }
     [JsonPropertyName("export_power_limit")] public double ExportPowerLimit { get; init; }
     [JsonPropertyName("import_price")] public double ImportPrice { get; init; }
     [JsonPropertyName("import_stop_soc")] public double ImportStopSoc { get; init; }
+    [JsonPropertyName("import_start_soc")] public double? ImportStartSoc { get; init; }
     [JsonPropertyName("import_power_limit")] public double ImportPowerLimit { get; init; }
     [JsonPropertyName("hot_water")] public string? HotWater { get; init; }
 }

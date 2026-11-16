@@ -232,7 +232,26 @@ public class BatteryOptimizerWorker(
 
         double exportPowerKw = config.GetValue("Optimizer:ExportPowerLimitKw", 5.0);
 
+        // The export and import automations use a gap between their start and stop SOC; the add-on reads those gaps.
+        double exportSocHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportSocHysteresisEntity"] ?? "input_number.export_soc_hysteresis", SocPlanner.DefaultHysteresis, ct);
+        double importSocHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ImportSocHysteresisEntity"] ?? "input_number.import_soc_hysteresis", SocPlanner.DefaultHysteresis, ct);
+
         var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, ct);
+
+        bool floorParsed = double.TryParse(floorKwh, NumberStyles.Float, CultureInfo.InvariantCulture, out double floorKwhValue) && batteryCapacityKwh > 0;
+        double floorSoc = floorParsed
+            ? Math.Max(20.0, floorKwhValue / batteryCapacityKwh * 100.0)
+            : 20.0;
+
+        // Same rounding and limits as the stop SOC that is applied below, so the model sees the real start level.
+        double plannedExportStopSoc = Math.Round(Math.Clamp(Math.Min(100.0, floorSoc + 2), config.GetValue("Optimizer:MinExportStopSoc", 20.0), config.GetValue("Optimizer:MaxExportStopSoc", 95.0)), 0);
+        string exportStartSocText = floorParsed
+            ? SocPlanner.N(SocPlanner.ExportStartSoc(plannedExportStopSoc, exportSocHysteresis))
+            : "unknown";
+        double? importMinStopSoc = double.TryParse(soc, NumberStyles.Float, CultureInfo.InvariantCulture, out double socNow)
+            ? SocPlanner.ImportMinStopSoc(socNow, importSocHysteresis)
+            : null;
+        string importMinStopSocText = importMinStopSoc is null ? "unknown" : SocPlanner.N(importMinStopSoc.Value);
 
         _pending = entry = entry with
         {
@@ -256,6 +275,10 @@ public class BatteryOptimizerWorker(
                 BestFeedInWindow = bestWindow,
                 SuggestedExportPrice = suggestedExportPrice,
                 HotWaterFull = hotWaterFull.Text,
+                ExportStartSoc = exportStartSocText,
+                ImportMinStopSoc = importMinStopSocText,
+                ExportSocHysteresis = exportSocHysteresis,
+                ImportSocHysteresis = importSocHysteresis,
                 AverageLoadKw = avgLoadKw
             }
         };
@@ -266,11 +289,11 @@ public class BatteryOptimizerWorker(
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
             // Use custom prompt but interpolate live telemetry variables
-            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text);
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text, exportStartSocText, importMinStopSocText);
         }
         else
         {
-            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text);
+            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text, exportStartSocText, importMinStopSocText);
         }
 
         prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
@@ -290,11 +313,6 @@ public class BatteryOptimizerWorker(
         var aiDecision = decision;
         var overrides = new List<string>();
         _pending = entry = entry with { AiResponse = aiDecision };
-
-        bool floorParsed = double.TryParse(floorKwh, NumberStyles.Float, CultureInfo.InvariantCulture, out double floorKwhValue) && batteryCapacityKwh > 0;
-        double floorSoc = floorParsed
-            ? Math.Max(20.0, floorKwhValue / batteryCapacityKwh * 100.0)
-            : 20.0;
 
         string currentFeedInState;
         try
@@ -368,6 +386,16 @@ public class BatteryOptimizerWorker(
         NoteLimit("import_stop_soc", decision.ImportStopSoc, safeImportStopSoc, 0.5);
         NoteLimit("import_power_limit", decision.ImportPowerLimit, safeImportLimit, 0.5);
 
+        // The import automation only starts when SOC is below the stop SOC minus its hysteresis, so a charge
+        // whose target sits at or just above the current SOC would never begin.
+        if (string.Equals(decision.Mode?.Trim(), "CHARGE", StringComparison.OrdinalIgnoreCase)
+            && importMinStopSoc is double minStop && safeImportStopSoc < minStop)
+        {
+            double requestedStop = safeImportStopSoc;
+            safeImportStopSoc = Math.Round(Math.Min(maxImpSoc, minStop), 0);
+            overrides.Add($"import_stop_soc {F(requestedStop)} -> {F(safeImportStopSoc)} (charging starts only below the stop SOC minus {F(importSocHysteresis)}%)");
+        }
+
         if (safeImportPrice >= safeExportPrice - 0.05)
         {
             double requestedImportPrice = safeImportPrice;
@@ -389,6 +417,9 @@ public class BatteryOptimizerWorker(
             hotWaterOption = "Minimal";
         }
 
+        double exportStartSoc = SocPlanner.ExportStartSoc(safeExportStopSoc, exportSocHysteresis);
+        double importStartSoc = SocPlanner.ImportStartSoc(safeImportStopSoc, importSocHysteresis);
+
         _pending = entry = entry with
         {
             Overrides = overrides,
@@ -396,9 +427,11 @@ public class BatteryOptimizerWorker(
             {
                 ExportPrice = safeExportPrice,
                 ExportStopSoc = safeExportStopSoc,
+                ExportStartSoc = exportStartSoc,
                 ExportPowerLimit = safeExportLimit,
                 ImportPrice = safeImportPrice,
                 ImportStopSoc = safeImportStopSoc,
+                ImportStartSoc = importStartSoc,
                 ImportPowerLimit = safeImportLimit,
                 HotWater = hotWaterOption
             }
@@ -430,18 +463,38 @@ public class BatteryOptimizerWorker(
         string telemetrySnapshot = $"SOC: {soc}% ({kwhBudgetSummary}) | Battery: {batteryPower} | Home: {homePower} | Solar: {solarSummary}";
         state.RecordSuccess(
             new AppliedDecision(
-                decision.Mode,
+                decision.Mode ?? string.Empty,
                 safeExportPrice,
                 safeExportStopSoc,
                 safeExportLimit,
                 safeImportPrice,
                 safeImportStopSoc,
                 safeImportLimit,
-                decision.Reasoning),
+                decision.Reasoning,
+                exportStartSoc,
+                importStartSoc),
             telemetrySnapshot,
             prompt);
 
         await RecordDecisionAsync(entry with { Outcome = DecisionOutcome.Applied }, ct);
+    }
+
+    private async Task<double> ReadHelperNumberAsync(HttpClient client, string entityId, double fallback, CancellationToken ct)
+    {
+        try
+        {
+            string value = await GetEntityStateAsync(client, entityId, ct);
+            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) && double.IsFinite(parsed) && parsed >= 0)
+                return parsed;
+
+            logger.LogWarning("Helper {Entity} is '{Value}'; using {Fallback}.", entityId, value, fallback);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not read helper {Entity}; using {Fallback}.", entityId, fallback);
+        }
+
+        return fallback;
     }
 
     private HttpClient CreateHaClient()
@@ -664,7 +717,8 @@ public class BatteryOptimizerWorker(
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
         double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
-        var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, surplusKwh, exportPowerKw, ct);
+        double sellableKwh = SocPlanner.SellableKwh(storedKwh, floorKwh, batteryCapacityKwh);
+        var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, exportPowerKw, ct);
 
         return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested);
     }
@@ -875,7 +929,9 @@ public class BatteryOptimizerWorker(
         string surplusKwh,
         string bestWindow,
         string suggestedExportPrice,
-        string hotWaterFull)
+        string hotWaterFull,
+        string exportStartSoc,
+        string importMinStopSoc)
     {
         return $$"""
                 You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
@@ -998,6 +1054,8 @@ public class BatteryOptimizerWorker(
                 - Use the highest safe power limit only when the price signal clearly justifies it.
                 - Avoid rapid or unnecessary cycling.
                 - If the battery is already charging or discharging, consider whether changing direction would create unnecessary losses.
+                - The export automation only starts when SOC is above export_start_soc, so choose DISCHARGE only when the current SOC is above it.
+                - The import automation only starts charging when SOC is below import_stop_soc minus a margin. To charge, import_stop_soc must be at least import_min_stop_soc.
 
                 8. HOT WATER
 
@@ -1043,6 +1101,8 @@ public class BatteryOptimizerWorker(
                 - best_feed_in_window = {{bestWindow}}
                 - suggested_export_price = {{suggestedExportPrice}}
                 - hot_water_full_ok = {{hotWaterFull}}
+                - export_start_soc = {{exportStartSoc}}
+                - import_min_stop_soc = {{importMinStopSoc}}
 
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
                 """;
@@ -1065,7 +1125,9 @@ public class BatteryOptimizerWorker(
         string surplusKwh,
         string bestWindow,
         string suggestedExportPrice,
-        string hotWaterFull)
+        string hotWaterFull,
+        string exportStartSoc,
+        string importMinStopSoc)
     {
         // Create a dictionary
         var replacements = new Dictionary<string, string>
@@ -1086,7 +1148,9 @@ public class BatteryOptimizerWorker(
                         { "{{surplusKwh}}", surplusKwh },
                         { "{{bestWindow}}", bestWindow },
                         { "{{suggestedExportPrice}}", suggestedExportPrice },
-                        { "{{hotWaterFull}}", hotWaterFull }
+                        { "{{hotWaterFull}}", hotWaterFull },
+                        { "{{exportStartSoc}}", exportStartSoc },
+                        { "{{importMinStopSoc}}", importMinStopSoc }
                     };
 
         string result = customPrompt;
