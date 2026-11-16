@@ -4,7 +4,7 @@ namespace AmberBatteryAI.Services;
 
 /// <summary>
 /// Decides when the hot water tank may be heated to the FULL target (80 C). FULL is only allowed when solar can pay
-/// for the extra heating without putting the 18:00 battery target (60%) at risk. Otherwise the tank stays on MINIMAL (60 C).
+/// for the extra heating without putting the 18:00 battery requirement (enough to reach 30% at 06:00 next day) at risk. Otherwise the tank stays on MINIMAL (60 C).
 /// </summary>
 public static class HotWaterPlanner
 {
@@ -31,6 +31,7 @@ public static class HotWaterPlanner
         double? socPercent,
         double capacityKwh,
         double netSolarKwhUntil18,
+        double requiredKwhAt18,
         double kwhPerDegC,
         double hourOfDay,
         double? importPriceNow)
@@ -56,16 +57,16 @@ public static class HotWaterPlanner
             return new FullAssessment(false, $"battery SOC is below {MinSocPercent:0}%", minimalReserveKwh);
 
         double storedKwh = socPercent.Value / 100 * capacityKwh;
-        double targetKwh = capacityKwh * 0.60;
+        double targetKwh = requiredKwhAt18;
         double kwhToFull = (FullTempC - tankC.Value) * kwhPerDegC;
         double projectedKwh = storedKwh + netSolarKwhUntil18 - kwhToFull;
 
         if (projectedKwh < targetKwh)
-            return new FullAssessment(false, $"18:00 target at risk: heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh, leaving a projected {N(projectedKwh)} kWh at 18:00 against a {N(targetKwh)} kWh target", minimalReserveKwh);
+            return new FullAssessment(false, $"06:00 target at risk: heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh, leaving a projected {N(projectedKwh)} kWh at 18:00 against the {N(targetKwh)} kWh needed to reach 30% at 06:00", minimalReserveKwh);
 
         return new FullAssessment(
             true,
-            $"heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh and the projected battery at 18:00 is still {N(projectedKwh)} kWh (target {N(targetKwh)} kWh)",
+            $"heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh and the projected battery at 18:00 is still {N(projectedKwh)} kWh (needed {N(targetKwh)} kWh)",
             kwhToFull);
     }
 

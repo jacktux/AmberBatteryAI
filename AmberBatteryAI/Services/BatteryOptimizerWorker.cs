@@ -126,6 +126,7 @@ public class BatteryOptimizerWorker(
             ParseFinite(soc),
             capacityKwh,
             netSolarKwh,
+            SocPlanner.RequiredKwhAt18(capacityKwh, avgLoadKw),
             kwhPerDegC,
             hour,
             ParseFinite(importPriceState));
@@ -734,25 +735,9 @@ public class BatteryOptimizerWorker(
 
     private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, double heatingReserveKwh, DateTime localNow)
     {
-        double minKwh = capacityKwh * 0.20;
-        double highKwh = capacityKwh * 0.60;
-        double lowKwh = capacityKwh * 0.30;
         double hour = localNow.TimeOfDay.TotalHours;
-
-        double floor;
-        if (hour >= 6 && hour < 18)
-        {
-            double hoursTo18 = 18 - hour;
-            double netSolarKwh = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, hoursTo18) - heatingReserveKwh;
-            floor = Math.Max(minKwh, highKwh - Math.Max(netSolarKwh, 0));
-        }
-        else
-        {
-            double hoursTo0600 = hour >= 18 ? (24 - hour) + 6 : 6 - hour;
-            floor = Math.Max(minKwh, lowKwh + avgLoadKw * hoursTo0600);
-        }
-
-        return Math.Round(Math.Min(floor, capacityKwh), 2);
+        double netSolarKwh = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, Math.Max(0, 18 - hour));
+        return SocPlanner.FloorKwh(capacityKwh, avgLoadKw, netSolarKwh, heatingReserveKwh, hour);
     }
 
     private static async Task<(string Window, string Suggested)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double surplusKwh, double exportPowerKw, CancellationToken ct)
@@ -810,13 +795,16 @@ public class BatteryOptimizerWorker(
                 }
             }
 
-            double? suggested = ExportPricePlanner.SuggestThreshold(
-                slots.Select(s => new ExportPricePlanner.Slot(s.Time, s.Value)).ToList(), now, surplusKwh, exportPowerKw);
+            var plannerSlots = slots.Select(s => new ExportPricePlanner.Slot(s.Time, s.Value)).ToList();
+            double? suggested = ExportPricePlanner.SuggestThreshold(plannerSlots, now, surplusKwh, exportPowerKw);
             if (suggested is null)
                 return ("unknown", "unknown");
 
-            string window = $"{bestStart.ToLocalTime():HH:mm} @ ${Math.Round(bestAvg, 3)}/kWh";
-            return (window, suggested.Value.ToString("0.000"));
+            var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw);
+            double threshold = ExportPricePlanner.ApplyLookAhead(suggested.Value, look, surplusKwh);
+
+            string window = $"{bestStart.ToLocalTime():HH:mm} @ ${Math.Round(bestAvg, 3)}/kWh | look-ahead: {look.Text(t => t.ToLocalTime().ToString("HH:mm"))}";
+            return (window, threshold.ToString("0.000"));
         }
         catch
         {
@@ -939,7 +927,7 @@ public class BatteryOptimizerWorker(
                 Your objective is to maximize net financial profit in AUD over the next {{forecastHours}} hours while:
                 - Accounting for approximately 10% round-trip battery and inverter losses.
                 - Accounting for a battery degradation cost of $0.05/kWh.
-                - Maintaining enough energy for household consumption, specifically targeting ~60% SOC by 18:00 (6:00 PM) to cover overnight and next-morning loads.
+                - Maintaining enough energy for household consumption, specifically ensuring the battery is at ~30% SOC at 06:00 the next morning (never below the 20% hard floor) to cover overnight and next-morning loads.
                 - Avoiding unnecessary battery cycling.
                 - Following all safety rules below.
 
@@ -998,13 +986,13 @@ public class BatteryOptimizerWorker(
 
                 2. PRE-SOLAR MORNING ARBITRAGE
 
-                If it is morning and the Solcast hourly forecast shows enough useful solar to recharge the battery to at least 60% SOC (or higher if evening peak prices justify it) before 18:00:
+                If it is morning and the Solcast hourly forecast shows enough useful solar to recharge the battery to the energy required at 18:00 (see floor_kWh) before 18:00:
 
                 - The battery may discharge during the morning peak window of approximately 06:30-09:30.
                 - Preserve enough energy to serve the household until solar generation becomes useful.
                 - Do not discharge below the safe reserve unless the current feed-in price is exceptionally high.
                 - Use the expected solar generation after subtracting household consumption.
-                - Do not dump energy if the solar forecast is insufficient to restore the battery to at least 60% before 18:00.
+                - Do not dump energy if the solar forecast is insufficient to restore the battery to the energy required at 18:00 (enough for ~30% at 06:00 next day).
 
                 3. SOLAR FORECAST INTERPRETATION
 
@@ -1012,7 +1000,7 @@ public class BatteryOptimizerWorker(
                 - The hourly Solcast values show the expected timing of that generation.
                 - Do not assume that all remaining solar will arrive before 18:00.
                 - Subtract expected household consumption from available solar before estimating energy available for battery charging.
-                - If the hourly forecast shows little or no useful solar before 18:00, prioritize reaching and keeping ~60% SOC via profitable low-cost grid charging if needed.
+                - If the hourly forecast shows little or no useful solar before 18:00, prioritize reaching and keeping the energy needed to reach ~30% SOC at 06:00 next day via profitable low-cost grid charging if needed.
                 - Evaluate profitable grid charging only when the expected future export price justifies it or when charging at cheap midday rates avoids higher evening import costs.
 
                 4. MIDDAY SOLAR AND NEGATIVE PRICING
@@ -1021,18 +1009,19 @@ public class BatteryOptimizerWorker(
 
                 - Prefer free solar over grid charging.
                 - Before 13:00, DO NOT set import_price above $0.00/kWh if remaining Solcast solar (minus house load) exceeds the kWh needed to reach 100% SOC. Only trigger positive grid charging after 13:00 if solar underperforms due to clouds/storms and SOC is falling behind track for the evening peak.
-                - If Solcast shows abundant solar that will easily fill the battery above 60% before 18:00, excess battery capacity above 60% may be exported during good daytime feed-in prices.
+                - If Solcast shows abundant solar that will easily fill the battery above the evening requirement before 18:00, excess battery capacity above floor_kWh may be exported during good daytime feed-in prices.
                 - If feed-in prices are negative or close to zero, avoid exporting battery energy unless required to prevent solar curtailment.
                 - Only import from the grid when the import price is below $0.00/kWh, or after 13:00 when profitable charging is clearly supported by the forecast and solar is insufficient.
                 - Do not fill the battery from the grid if sufficient solar is expected to charge it before 18:00.
                 - Do not export solar at a loss unless reducing SOC is necessary to create capacity for forecast solar generation.
 
-                5. EVENING PEAK CAPTURE & 18:00 TARGET
+                5. LOOK-AHEAD EXPORT & 06:00 TARGET
 
-                Target having at least ~60% SOC at 18:00 (6:00 PM) to cover overnight and next-morning household consumption.
+                The requirement is to be at ~30% SOC at 06:00 next day (hard floor 20%). floor_kWh is the system's calculation of the minimum energy to hold now, from forecast solar, expected load and overnight needs. Do not use a fixed SOC at 18:00.
 
-                - Before 18:00: Only export down toward 60% SOC (or lower if solar is still actively recharging it back to 60% by 18:00). Keep any capacity needed to hit 60% at 18:00 in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
-                - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above the 60% overnight reserve (for example, if solar charged the battery to 85�100%) is excess and should be exported during the evening peak at a good feed-in price.
+                - Only export energy above floor_kWh. Keep the rest in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
+                - Look ahead: best_feed_in_window includes a look-ahead comparing the current feed-in price with the best later price, net of 0.90 round-trip efficiency and $0.02/kWh degradation. If it says HOLD, do not sell now; keep the energy for the later window (suggested_export_price is already set above the current price). If it says SELL NOW, sell now.
+                - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above floor_kWh (for example, if solar charged the battery to 85-100%) is excess and should be exported during the evening peak at a good feed-in price.
                 - Set export_price just below the highest realistic feed-in price that is likely to occur.
                 - Do not discharge too early at a low price when a higher price is forecast soon.
                 - If an extreme feed-in price greater than $2.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve (20%).
@@ -1040,10 +1029,10 @@ public class BatteryOptimizerWorker(
 
                 6. OVERNIGHT AND HOUSEHOLD-LOAD PROTECTION
 
-                After 18:00, the ~60% SOC reserve is meant to carry the house through the night and next morning.
+                After 18:00, floor_kWh is the energy needed to carry the house through the night and still be at ~30% SOC at 06:00.
 
                 - Protect enough energy for expected overnight and morning household consumption until solar ramps up.
-                - Any SOC above what is needed for overnight/morning load (or above 60% if load is low) can be exported overnight if feed-in prices are attractive and exceed next-morning import replacement costs.
+                - Any SOC above what is needed for overnight/morning load can be exported overnight if feed-in prices are attractive and exceed next-morning import replacement costs.
                 - Do not export below 30% SOC overnight unless the feed-in price exceeds $0.80/kWh or an extreme price event justifies it.
                 - If the battery is unlikely to receive useful solar the next morning, keep a higher overnight reserve.
 
@@ -1061,8 +1050,8 @@ public class BatteryOptimizerWorker(
 
                 The hot_water mode sets the tank's target temperature: FULL = 80 degrees C, MINIMAL = 60 degrees C, OFF = no heating.
                 Set hot_water to exactly one of OFF, MINIMAL, or FULL using the Hot Water Tank Temperature in the telemetry below:
-                - FULL only when hot_water_full_ok in COMPUTED VALUES starts with YES. The system has already checked the tank temperature, the 11:00-16:00 solar window, the battery SOC and that the 18:00 target still holds after the extra heating. Never choose FULL when it says NO.
-                - OFF when the battery SOC is below 25%, or it is 16:30-21:30, or the average import price over the next 2 hours is above $0.25/kWh and the tank is at or above 45 degrees C, or heating to 60 degrees C would put the 18:00 target at risk.
+                - FULL only when hot_water_full_ok in COMPUTED VALUES starts with YES. The system has already checked the tank temperature, the 11:00-16:00 solar window, the battery SOC and that the 06:00 30% target still holds after the extra heating. Never choose FULL when it says NO.
+                - OFF when the battery SOC is below 25%, or it is 16:30-21:30, or the average import price over the next 2 hours is above $0.25/kWh and the tank is at or above 45 degrees C, or heating to 60 degrees C would put the 06:00 30% target at risk.
                 - MINIMAL in all other cases, including when the tank temperature is unknown.
                 - Do not heat from grid energy when the 2 hour average import price is above $0.20/kWh. Solar-powered heating is allowed at any import price.
 
@@ -1071,14 +1060,14 @@ public class BatteryOptimizerWorker(
                 Before selecting thresholds:
 
                 1. Determine whether the battery should CHARGE, DISCHARGE, or SELF CONSUME.
-                2. Check current SOC against the 60% at 18:00 target and expected Solcast generation.
-                3. Identify any excess capacity above the 60% evening/overnight reserve and find the best realistic export window (daytime, evening peak, or overnight).
+                2. Check current SOC against floor_kWh (30% at 06:00 target) and expected Solcast generation.
+                3. Identify any excess capacity above floor_kWh and find the best realistic export window (daytime, evening peak, or overnight).
                 4. Calculate whether any proposed cycle remains profitable after losses and degradation.
                 5. Select conservative SELF CONSUME thresholds when the data is ambiguous.
 
                 The reasoning must clearly explain:
                 - Whether the battery should charge, discharge, or self consume.
-                - How current SOC and Solcast compare to the 60% at 18:00 target.
+                - How current SOC and Solcast compare to the 30% at 06:00 target and whether the look-ahead says HOLD or SELL NOW.
                 - The expected profitable price spread and highest-value forecast period.
                 - The estimated overnight/morning household-load requirement.
                 - The reason for the selected export_stop_soc and charge_stop_soc limits.
