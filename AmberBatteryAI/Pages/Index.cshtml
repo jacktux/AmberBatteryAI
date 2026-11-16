@@ -330,7 +330,7 @@
 
                     <div><strong>{{hotWaterFull}}</strong><br><span style="color: var(--muted);">Whether the system allows hot water FULL (80 C): YES or NO, with the reason</span></div>
 
-                                                          <div><strong>{{suggestedExportPrice}}</strong><br><span style="color: var(--muted);">Suggested export price: best 1-hour feed-in average, 10% haircut if more than 4 hours away, minus $0.01</span></div>
+                                                          <div><strong>{{suggestedExportPrice}}</strong><br><span style="color: var(--muted);">Suggested export price: the price of the forecast slot that completes selling the surplus when the best-priced slots are used at the export power limit, minus $0.01. Forecast prices are discounted from 0% at 4 hours ahead to 20% at 10 hours and beyond.</span></div>
 
                 <div style="background: rgba(251, 191, 36, 0.2); border: 1px solid var(--gold); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
                     <strong style="color: var(--gold);">?? Example:</strong>

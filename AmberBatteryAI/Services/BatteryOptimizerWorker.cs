@@ -119,7 +119,7 @@ public class BatteryOptimizerWorker(
 
         double hour = DateTime.Now.TimeOfDay.TotalHours;
         double netSolarKwh = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, Math.Max(0, 18 - hour));
-        double kwhPerDegC = config.GetValue("Optimizer:HotWaterKwhPerDegC", 0.2);
+        double kwhPerDegC = config.GetValue("Optimizer:HotWaterKwhPerDegC", 0.12);
 
         return HotWaterPlanner.AssessFull(
             ParseFinite(hotWaterTemp.Split(' ')[0]),
@@ -230,7 +230,9 @@ public class BatteryOptimizerWorker(
 
         var hotWaterFull = AssessFullHotWater(soc, hotWaterTemp, currentImportState, batteryCapacityKwh, remainingSolarKwh, avgLoadKw);
 
-        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, feedInEntity, forecastHours, ct);
+        double exportPowerKw = config.GetValue("Optimizer:ExportPowerLimitKw", 5.0);
+
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, ct);
 
         _pending = entry = entry with
         {
@@ -651,6 +653,7 @@ public class BatteryOptimizerWorker(
         double remainingSolarKwh,
         double avgLoadKw,
         double heatingReserveKwh,
+        double exportPowerKw,
         string feedInEntity,
         int hoursAhead,
         CancellationToken ct)
@@ -661,14 +664,15 @@ public class BatteryOptimizerWorker(
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
         double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
-        var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, ct);
+        var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, surplusKwh, exportPowerKw, ct);
 
         return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested);
     }
 
-    // Conservative daytime assumptions: solar haircut for forecast error and a higher daytime load.
+    // Conservative daytime assumptions: solar haircut for forecast error, and a daytime house load that
+    // excludes the hot water element (measured 0.9-1.2 kW), which is reserved separately.
     private const double SolarConfidence = 0.6;
-    private const double DaytimeLoadKw = 1.5;
+    private const double DaytimeLoadKw = 1.0;
 
     // Solar still to come before 18:00 minus the house load until then; negative when the load outweighs the solar.
     private static double NetSolarKwhUntil18(double remainingSolarKwh, double avgLoadKw, double hoursTo18) =>
@@ -697,7 +701,7 @@ public class BatteryOptimizerWorker(
         return Math.Round(Math.Min(floor, capacityKwh), 2);
     }
 
-    private static async Task<(string Window, string Suggested)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, CancellationToken ct)
+    private static async Task<(string Window, string Suggested)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double surplusKwh, double exportPowerKw, CancellationToken ct)
     {
         try
         {
@@ -752,12 +756,13 @@ public class BatteryOptimizerWorker(
                 }
             }
 
-            double hoursUntil = (bestStart - now).TotalHours;
-            double haircut = hoursUntil > 4 ? 0.90 : 1.00;
-            double suggested = Math.Round(bestAvg * haircut - 0.01, 3);
+            double? suggested = ExportPricePlanner.SuggestThreshold(
+                slots.Select(s => new ExportPricePlanner.Slot(s.Time, s.Value)).ToList(), now, surplusKwh, exportPowerKw);
+            if (suggested is null)
+                return ("unknown", "unknown");
 
             string window = $"{bestStart.ToLocalTime():HH:mm} @ ${Math.Round(bestAvg, 3)}/kWh";
-            return (window, suggested.ToString("0.000"));
+            return (window, suggested.Value.ToString("0.000"));
         }
         catch
         {
@@ -1093,6 +1098,16 @@ public class BatteryOptimizerWorker(
         return result;
     }
 
+    // Short waits so a busy free-tier model (HTTP 503) is retried without delaying the cycle for long.
+    private static readonly TimeSpan[] AiRetryDelays = { TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30) };
+
+    private static bool IsTemporaryAiFailure(System.Net.HttpStatusCode status) =>
+        status is System.Net.HttpStatusCode.TooManyRequests
+            or System.Net.HttpStatusCode.InternalServerError
+            or System.Net.HttpStatusCode.BadGateway
+            or System.Net.HttpStatusCode.ServiceUnavailable
+            or System.Net.HttpStatusCode.GatewayTimeout;
+
     private async Task<OptimizerDecision?> GetAiDecisionAsync(string prompt, CancellationToken ct)
     {
         var client = httpClientFactory.CreateClient();
@@ -1122,8 +1137,21 @@ public class BatteryOptimizerWorker(
             }
         };
 
-        var response = await client.PostAsJsonAsync(endpoint, requestBody, ct);
-        string rawBody = await response.Content.ReadAsStringAsync(ct);
+        HttpResponseMessage response;
+        string rawBody;
+        for (int attempt = 1; ; attempt++)
+        {
+            response = await client.PostAsJsonAsync(endpoint, requestBody, ct);
+            rawBody = await response.Content.ReadAsStringAsync(ct);
+
+            if (response.IsSuccessStatusCode || attempt >= AiRetryDelays.Length + 1 || !IsTemporaryAiFailure(response.StatusCode))
+                break;
+
+            TimeSpan delay = AiRetryDelays[attempt - 1];
+            logger.LogWarning("AI provider returned HTTP {Status}; retrying in {Seconds}s (attempt {Attempt} of {Max}).",
+                (int)response.StatusCode, delay.TotalSeconds, attempt + 1, AiRetryDelays.Length + 1);
+            await Task.Delay(delay, ct);
+        }
 
         if (!response.IsSuccessStatusCode)
         {

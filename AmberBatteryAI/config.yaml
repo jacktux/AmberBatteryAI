@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.4.1"
+version: "1.5.0"
 slug: amber_battery_ai
 init: false
 arch:
@@ -38,7 +38,7 @@ options:
   min_import_stop_soc: 30
   max_import_stop_soc: 100
   max_power_watts: 10000
-  hot_water_kwh_per_deg_c: 0.2
+  hot_water_kwh_per_deg_c: 0.12
 schema:
   ai_provider_endpoint: str
   ai_api_key: password

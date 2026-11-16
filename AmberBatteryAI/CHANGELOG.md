@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0
+
+### Changed
+- The suggested export price is now set so the whole surplus is sold in the best-priced forecast slots that can carry it at the export power limit (`Optimizer:ExportPowerLimitKw`, default 5 kW). A larger surplus gets a lower threshold, so it is not left unsold, and a small one still waits for the peak. Before, the price was set from a single best window whatever the surplus.
+- Forecast prices are discounted by distance: none up to 4 hours, then a smooth ramp to 20% at 10 hours and beyond. A day of data showed far-ahead overnight prices coming in 10-25% below the forecast. The ramp avoids sudden steps between neighbouring slots.
+- The daytime house load assumed in the battery floor drops from 1.5 kW to 1.0 kW. The measured load without the hot water element is 0.9-1.2 kW, and the element is now reserved separately, so the old value counted it twice and held back exports.
+- The default `hot_water_kwh_per_deg_c` drops from 0.2 to 0.12, from measured heating (0.095-0.13 kWh per degree). If you saved a value in the add-on options, change it there; the new default does not replace a saved value.
+
+### Added
+- Temporary AI failures (HTTP 429, 500, 502, 503, 504) are retried up to 3 times, after 5, 15 and 30 seconds, before the cycle is recorded as an error. Three of 50 runs overnight failed with 503 "high demand".
+
 ## 1.4.1
 
 ### Fixed
