@@ -139,17 +139,23 @@ public static class ExportPricePlanner
         return new LookAhead(hold, smooth[best].Time, Math.Round(bestRaw, 3), Math.Round(bestDiscounted, 3), Math.Round(nowPrice, 3), capacity, windowHours, reason);
     }
 
+    /// <summary>The feed-in price below which an export that is already running stops.</summary>
+    public static double EffectiveSellFloor(double exportPrice, double exportPriceHysteresis) =>
+        Math.Round(exportPrice - Math.Max(0, exportPriceHysteresis), 3);
+
     /// <summary>
     /// Applies the look-ahead to a threshold. On HOLD the price is the best later window's price, and at least the live
     /// price plus half a cent so a live blip cannot start the export, capped at the highest forecast feed-in price.
     /// On SELL NOW the threshold is unchanged.
     /// </summary>
-    public static double ApplyLookAhead(double threshold, LookAhead look, double? livePrice, double forecastMaxPrice)
+    public static double ApplyLookAhead(double threshold, LookAhead look, double? livePrice, double forecastMaxPrice, double exportPriceHysteresis = 0)
     {
         if (!look.Hold) return threshold;
 
+        // The automation starts at feed-in >= price but only stops below price - hysteresis. Staying above live + hysteresis
+        // therefore both prevents a start and ends an export already in progress.
         double live = livePrice ?? look.NowPrice;
-        double floor = live + HoldMarginDollars;
+        double floor = live + Math.Max(0, exportPriceHysteresis) + HoldMarginDollars;
         double price = Math.Max(Math.Max(threshold, look.LaterPrice), floor);
         return Math.Round(Math.Min(price, Math.Max(forecastMaxPrice, floor)), 3);
     }
@@ -160,14 +166,17 @@ public static class ExportPricePlanner
 
     /// <summary>
     /// Export power that spreads the surplus over the best window, in 500 W steps within 1000-5000 W.
-    /// A live price above $1.00 allows 10000 W.
+    /// A live price above $1.00 allows 10000 W. The limit is a battery discharge limit that also feeds the house, so grid
+    /// export is the limit minus the home load: the house load is added to the wanted export power when it is known.
     /// </summary>
-    public static int SuggestExportPowerLimit(double? livePrice, double surplusKwh, double windowHours)
+    public static int SuggestExportPowerLimit(double? livePrice, double surplusKwh, double windowHours, double? homeLoadWatts = null)
     {
         if (livePrice > 1.00) return (int)SpikeExportWatts;
         if (windowHours <= 0) return (int)MaxExportWatts;
 
-        double watts = Math.Ceiling(Math.Max(surplusKwh, 0) / windowHours * 1000 / 500) * 500;
+        double exportWatts = Math.Max(surplusKwh, 0) / windowHours * 1000;
+        double load = homeLoadWatts is double h && double.IsFinite(h) ? Math.Max(0, h) : 0;
+        double watts = Math.Ceiling((exportWatts + load) / 500) * 500;
         return (int)Math.Clamp(watts, MinExportWatts, MaxExportWatts);
     }
 

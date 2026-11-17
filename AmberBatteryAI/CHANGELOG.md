@@ -10,6 +10,10 @@
 - New options: `grid_power_entity` (default `sensor.la_sigenstor1_grid_power`), `solar_power_entity` (default `sensor.la_sigenstor1_solar_power`), `grid_power_positive_is_import` (default true; set false if the grid sensor reads positive while exporting) and `telemetry_sample_minutes` (default 5). Check the two power entity IDs against your Home Assistant, as the defaults are guesses.
 
 ### Changed
+- The add-on reads `input_number.export_price_hysteresis` (default 0.02, entity configurable via `HomeAssistant:ExportPriceHysteresisEntity`) and gives the prompt `{{exportPriceHysteresis}}` and `{{effectiveSellFloor}}` (suggested price minus hysteresis). The export automation only stops below export_price - hysteresis, so selling continues down to that floor.
+- On HOLD the export price is now at least live price + hysteresis + $0.005, so it prevents a start and also ends an export already running (raising the price by less would not stop it).
+- `suggested_export_power_limit` now adds the current house load (the limit is a battery discharge limit that also feeds the house; grid export = limit - home load). Falls back to the old calculation when the load is unavailable; still 1000-5000 W, or 10000 W above $1.00.
+- Custom prompts: add `- export_price_hysteresis = {{exportPriceHysteresis}}` and `- effective_sell_floor = {{effectiveSellFloor}}` under COMPUTED VALUES, and have Tests B and C use effective_sell_floor for energy already being sold.
 - Look-ahead no longer flips to SELL NOW on short price blips. Feed-in is smoothed with a rolling 30-minute average (5-minute slots averaged, 30-minute slots as-is), so one 5-minute slot cannot win alone or trigger a sale.
 - Later prices are discounted by distance: none up to 2 h, rising linearly to a 10% haircut at 4 h, and the existing haircut beyond that. The raw price is kept alongside the discounted one.
 - SELL NOW only when the current price is at least the best later price + $0.015, the best later window starts within 30 minutes, the live price is $0.50 or more, or the later window cannot carry the surplus. Otherwise HOLD.

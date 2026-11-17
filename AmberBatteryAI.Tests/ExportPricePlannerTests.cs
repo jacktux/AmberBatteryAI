@@ -154,3 +154,44 @@ public class ExportPricePlannerTests
     public void ExportPowerLimitSpreadsSurplusOverTheWindow(double live, double surplus, double hours, int expected) =>
         Assert.Equal(expected, ExportPricePlanner.SuggestExportPowerLimit(live, surplus, hours));
 }
+
+public class ExportAutomationAlignmentTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 11, 17, 17, 45, 0, TimeSpan.Zero);
+    private static DateTimeOffset At(int h, int m) => new(2026, 11, 17, h, m, 0, TimeSpan.Zero);
+
+    private static ExportPricePlanner.LookAhead Hold() =>
+        new(true, At(19, 30), 0.123, 0.123, 0.125, 10, 1.5, "the later window pays more");
+
+    [Fact]
+    public void HoldPriceClearsLivePlusHysteresisSoARunningExportStops()
+    {
+        double price = ExportPricePlanner.ApplyLookAhead(0.05, Hold(), 0.134, 0.30, 0.02);
+
+        Assert.Equal(0.159, price, 3);
+        Assert.True(0.134 < price - 0.02);
+    }
+
+    [Fact]
+    public void HoldPriceWithoutHysteresisKeepsTheOldBehaviour() =>
+        Assert.Equal(0.139, ExportPricePlanner.ApplyLookAhead(0.05, Hold(), 0.134, 0.30), 3);
+
+    [Fact]
+    public void EffectiveSellFloorIsPriceMinusHysteresis() =>
+        Assert.Equal(0.098, ExportPricePlanner.EffectiveSellFloor(0.118, 0.02), 3);
+
+    [Theory]
+    [InlineData(null, 5000)]   // no load: 5 kWh over 2 h = 2500 W
+    [InlineData(0.0, 2500)]
+    [InlineData(1200.0, 4000)] // 2500 + 1200 -> 3700 -> 4000
+    [InlineData(4000.0, 5000)] // capped
+    public void PowerLimitAddsHomeLoad(double? load, int expected)
+    {
+        int limit = ExportPricePlanner.SuggestExportPowerLimit(0.10, 5, 2.0, load);
+        Assert.Equal(load is null ? 2500 : expected, limit);
+    }
+
+    [Fact]
+    public void SpikeStillGivesTenKilowattsWhateverTheLoad() =>
+        Assert.Equal(10000, ExportPricePlanner.SuggestExportPowerLimit(1.5, 5, 2.0, 3000));
+}

@@ -111,9 +111,11 @@ COMPUTED VALUES (calculated by the system; trust these, do not recompute them)
 - hot_water_full_ok = {{hotWaterFull}}
 - export_start_soc = {{exportStartSoc}}
 - import_min_stop_soc = {{importMinStopSoc}}
+- export_price_hysteresis = {{exportPriceHysteresis}}
+- effective_sell_floor = {{effectiveSellFloor}}
 ```
 
-`best_feed_in_window` ends with the look-ahead result, HOLD or SELL NOW. `suggested_export_power_limit` is in watts; the system enforces it, so the prompt should tell the AI to copy it into `export_power_limit` instead of using a fixed value.
+`best_feed_in_window` ends with the look-ahead result, HOLD or SELL NOW. `export_price_hysteresis` is read from `input_number.export_price_hysteresis` (default 0.02): the export automation starts at feed-in >= export_price but only stops below export_price minus this, so `effective_sell_floor` (suggested price minus hysteresis) is the price selling really continues down to. Tests B and C should use it for energy already being sold. `suggested_export_power_limit` is in watts, includes the current house load (it is a discharge limit, grid export = limit - home load), and; the system enforces it, so the prompt should tell the AI to copy it into `export_power_limit` instead of using a fixed value.
 
 ### Required JSON Response Format
 
