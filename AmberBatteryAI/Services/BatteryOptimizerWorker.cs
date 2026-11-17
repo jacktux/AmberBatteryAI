@@ -387,6 +387,17 @@ public class BatteryOptimizerWorker(
         NoteLimit("import_stop_soc", decision.ImportStopSoc, safeImportStopSoc, 0.5);
         NoteLimit("import_power_limit", decision.ImportPowerLimit, safeImportLimit, 0.5);
 
+        // CHARGE means grid charging. If the import price now is above the import threshold, nothing will charge,
+        // so the mode is SELF CONSUME and the target is not raised (the model sometimes labels solar charging CHARGE).
+        if (string.Equals(decision.Mode?.Trim(), "CHARGE", StringComparison.OrdinalIgnoreCase)
+            && double.TryParse(currentImportState, NumberStyles.Float, CultureInfo.InvariantCulture, out double importNow)
+            && importNow > safeImportPrice)
+        {
+            decision = decision with { Mode = "SELF CONSUME" };
+            overrides.Add($"mode CHARGE -> SELF CONSUME (import price now ${F(importNow)} is above the import threshold ${F(safeImportPrice)}, so no grid charging would start)");
+            safeImportStopSoc = Math.Round(Math.Clamp(socNow, minImpSoc, maxImpSoc), 0);
+        }
+
         // The import automation only starts when SOC is below the stop SOC minus its hysteresis, so a charge
         // whose target sits at or just above the current SOC would never begin.
         if (string.Equals(decision.Mode?.Trim(), "CHARGE", StringComparison.OrdinalIgnoreCase)
