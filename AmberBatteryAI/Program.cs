@@ -80,6 +80,10 @@ app.MapGet("/api/pnl", (TelemetryHistoryService telemetry, int? days, string? fo
     return Results.Ok(pnl);
 });
 
+// Rolling forecast bias (actual minus forecast feed-in price) per lead-time bucket. Recorded only, not used in decisions.
+app.MapGet("/api/forecast-bias", (TelemetryHistoryService telemetry, int? days) =>
+    Results.Ok(telemetry.BuildForecastBias(days ?? 14).Bias));
+
 app.MapGet("/api/prompt", (OptimizerState state) =>
 {
     if (state == null)

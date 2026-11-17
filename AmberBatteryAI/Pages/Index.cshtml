@@ -262,6 +262,21 @@
         </div>
 
         <div class="card" style="margin-bottom: 16px;">
+            <div class="label">Feed-in Forecast Error (14 days)</div>
+            <div class="sub">Actual minus forecast feed-in price, by how far ahead the forecast was. Positive means the forecast was too low. Shown only; it is not used in decisions.</div>
+            <div style="overflow-x: auto;">
+                <table class="history">
+                    <thead>
+                        <tr><th>Lead time</th><th>Average error</th><th>Average absolute error</th><th>Forecasts compared</th></tr>
+                    </thead>
+                    <tbody id="biasRows">
+                        <tr><td colspan="4">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
             <div class="label">Latest AI Prompt Sent</div>
             <button type="button" onclick="copyLatestPrompt()" style="margin-top: 8px;">Copy Prompt</button>
             <span id="copyStatus" style="margin-left: 8px; color: var(--muted); font-size: 0.9rem;"></span>
@@ -446,6 +461,22 @@
                 }
             }
 
+            async function loadBias() {
+                const body = document.getElementById('biasRows');
+                try {
+                    const report = await (await fetch('api/forecast-bias')).json();
+                    body.replaceChildren();
+                    const signed = v => v == null ? '--' : (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(3);
+                    for (const b of report.buckets) {
+                        const row = body.insertRow();
+                        for (const text of [b.bucket, signed(b.mean_error), b.mean_abs_error == null ? '--' : '$' + b.mean_abs_error.toFixed(3), b.count])
+                            row.insertCell().textContent = text;
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+
             async function copyLatestPrompt() {
                 const text = document.getElementById('prompt').textContent;
                 const status = document.getElementById('copyStatus');
@@ -468,6 +499,7 @@
                     lastHistoryRun = data.lastRunUtc;
                     loadHistory();
                     loadPnl();
+                    loadBias();
                 }
                 const btn = document.getElementById('runBtn');
                 btn.disabled = data.isRunning;

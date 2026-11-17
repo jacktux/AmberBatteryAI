@@ -36,7 +36,8 @@ public class TelemetrySampler(
                 if (DateTimeOffset.Now - lastReport >= ReportEvery)
                 {
                     lastReport = DateTimeOffset.Now;
-                    samples.WriteReports(samples.BuildDailyPnl(pnlDays));
+                    var (errors, bias) = samples.BuildForecastBias(pnlDays);
+                    samples.WriteReports(samples.BuildDailyPnl(pnlDays), errors, bias);
                 }
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

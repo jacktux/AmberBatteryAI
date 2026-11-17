@@ -25,6 +25,7 @@ public class TelemetryHistoryService
     private static readonly JsonSerializerOptions LineOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
+    private readonly DecisionHistoryService _decisions;
     private readonly string _directory;
     private readonly int _retentionDays;
     private readonly ILogger<TelemetryHistoryService> _logger;
@@ -32,9 +33,10 @@ public class TelemetryHistoryService
     private readonly TimeSpan _maxGap;
     private DateOnly _lastPruned;
 
-    public TelemetryHistoryService(PromptStorageService promptStorage, IConfiguration config, ILogger<TelemetryHistoryService> logger)
+    public TelemetryHistoryService(PromptStorageService promptStorage, DecisionHistoryService decisions, IConfiguration config, ILogger<TelemetryHistoryService> logger)
     {
         _logger = logger;
+        _decisions = decisions;
         _directory = Path.GetDirectoryName(promptStorage.GetStoragePath()) ?? Path.GetTempPath();
         _retentionDays = Math.Max(1, config.GetValue("Optimizer:DecisionLogRetentionDays", 30));
         int sampleMinutes = config.GetValue("Telemetry:SampleIntervalMinutes", 5);
@@ -102,20 +104,29 @@ public class TelemetryHistoryService
     public List<DailyPnl> BuildDailyPnl(int days) =>
         PnlCalculator.Daily(Read(days), DateTimeOffset.Now, _maxGap);
 
+    /// <summary>Forecast errors and the rolling per-bucket bias, rebuilt from the decision and sample logs.</summary>
+    public (List<ForecastError> Errors, ForecastBiasReport Bias) BuildForecastBias(int days = 14)
+    {
+        var errors = ForecastErrorCalculator.Evaluate(_decisions.Read(days + 1), Read(days + 1));
+        return (errors, ForecastErrorCalculator.RollingBias(errors, DateTimeOffset.Now, days));
+    }
+
     /// <summary>Writes the reports next to the decision log. Never throws.</summary>
-    public void WriteReports(IReadOnlyList<DailyPnl> pnl)
+    public void WriteReports(IReadOnlyList<DailyPnl> pnl, IReadOnlyList<ForecastError> errors, ForecastBiasReport bias)
     {
         try
         {
             lock (_lock)
             {
+                File.WriteAllText(Path.Combine(_directory, "forecast-errors.csv"), ForecastErrorCalculator.ToCsv(errors), Utf8NoBom);
+                File.WriteAllText(Path.Combine(_directory, "forecast-bias.json"), JsonSerializer.Serialize(bias, JsonOptions), Utf8NoBom);
                 File.WriteAllText(Path.Combine(_directory, "daily-pnl.csv"), PnlCalculator.ToCsv(pnl), Utf8NoBom);
                 File.WriteAllText(Path.Combine(_directory, "daily-pnl.json"), JsonSerializer.Serialize(pnl, JsonOptions), Utf8NoBom);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not write the daily P&L report.");
+            _logger.LogWarning(ex, "Could not write the P&L and forecast-error reports.");
         }
     }
 
