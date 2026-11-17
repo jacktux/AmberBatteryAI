@@ -6,6 +6,7 @@
 - The fixed "60% at 18:00" requirement is replaced by "30% SOC at 06:00 next day" (20% hard floor kept). `floor_kWh` is now the energy needed at 18:00 for the overnight load plus the 30% morning target, less the net solar still to come (after hot water). After 18:00 it is 30% plus the load until 06:00, as before.
 - The `Full` hot water check uses the same requirement at 18:00 instead of 60%.
 - Look-ahead export: the current feed-in price is compared with the best later forecast price (discounted for distance). No efficiency or degradation penalty is applied to waiting, because stored energy is discharged once either way. The comparison uses the live feed-in price, not the next forecast slot. When a later window pays more, the suggested export price is set above the current price so the energy is held, whatever the size of the surplus. The result (HOLD or SELL NOW) is shown in `best_feed_in_window` and the prompt.
+- A CHARGE decision is changed to SELF CONSUME when the import price now is above the import threshold, since no grid charging would start; the import stop SOC is then not raised. Before, the model could label solar charging as CHARGE and the dashboard showed a charge that never happened.
 
 ## 1.5.1
 
