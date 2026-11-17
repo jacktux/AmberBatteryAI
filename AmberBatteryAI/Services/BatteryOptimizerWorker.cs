@@ -253,7 +253,7 @@ public class BatteryOptimizerWorker(
         double importSocHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ImportSocHysteresisEntity"] ?? "input_number.import_soc_hysteresis", SocPlanner.DefaultHysteresis, ct);
 
         double exportPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportPriceHysteresisEntity"] ?? "input_number.export_price_hysteresis", DefaultExportPriceHysteresis, ct);
-        double? homeLoadWatts = ParseWatts(homePower);
+        double? homeLoadWatts = telemetrySample.HomePowerW ?? ParseWatts(homePower);
 
         var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, ct);
         string exportPriceHysteresisText = F(exportPriceHysteresis);
