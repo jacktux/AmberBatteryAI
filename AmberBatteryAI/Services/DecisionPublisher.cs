@@ -50,6 +50,8 @@ public static class DecisionPublisher
             ["surplus_kwh"] = entry.Computed?.SurplusKwh,
             ["best_feed_in_window"] = entry.Computed?.BestFeedInWindow,
             ["suggested_export_price"] = entry.Computed?.SuggestedExportPrice,
+            ["suggested_export_power_limit"] = entry.Computed?.SuggestedExportPowerLimit,
+            ["look_ahead_hold"] = entry.Computed?.LookAheadHold,
             ["hot_water_full_check"] = entry.Computed?.HotWaterFull,
             ["export_soc_hysteresis"] = entry.Computed?.ExportSocHysteresis,
             ["import_soc_hysteresis"] = entry.Computed?.ImportSocHysteresis,

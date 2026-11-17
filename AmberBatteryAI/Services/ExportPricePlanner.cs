@@ -22,45 +22,154 @@ public static class ExportPricePlanner
         : 1.00 - 0.20 * (hoursAhead - 4) / 6;
 
 
-    /// <param name="Hold">True when energy should be kept for a later window that pays better after losses.</param>
-    public record LookAhead(bool Hold, DateTimeOffset? LaterTime, double LaterPrice, double LaterNetPrice, double NowPrice, double LaterCapacityKwh)
+    public const double SellNowMarginDollars = 0.015;
+    public const double SpikeDollars = 0.50;
+    public const double HoldMarginDollars = 0.005;
+    public const double SmoothingHours = 0.5;
+    public const double PlateauFraction = 0.90;
+
+    /// <summary>
+    /// Discount for a later slot in the look-ahead. None up to 2 hours, then 0-10% from 2 to 4 hours, then the
+    /// longer-range <see cref="Haircut"/> (never smaller than the 10% already reached at 4 hours).
+    /// </summary>
+    public static double HorizonFactor(double hoursAhead) =>
+        hoursAhead <= 2 ? 1.00
+        : hoursAhead <= 4 ? 1.00 - 0.10 * (hoursAhead - 2) / 2
+        : Math.Min(0.90, Haircut(hoursAhead));
+
+    private static double SlotHours(IReadOnlyList<Slot> slots, int i)
+    {
+        double hours = i + 1 < slots.Count
+            ? (slots[i + 1].Time - slots[i].Time).TotalHours
+            : i > 0 ? (slots[i].Time - slots[i - 1].Time).TotalHours : MaxSlotHours;
+        return Math.Clamp(hours, 0, MaxSlotHours);
+    }
+
+    /// <summary>
+    /// Rolling 30-minute average of the prices that start at each slot, weighted by time. 5-minute slots are averaged,
+    /// 30-minute slots stay as they are, so one 5-minute blip cannot stand out on its own.
+    /// </summary>
+    public static IReadOnlyList<Slot> Smooth(IReadOnlyList<Slot> slots)
+    {
+        var result = new List<Slot>(slots.Count);
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var from = slots[i].Time;
+            var to = from.AddHours(SmoothingHours);
+            double weight = 0, sum = 0;
+            for (int j = i; j < slots.Count; j++)
+            {
+                if (slots[j].Time >= to) break;
+                var end = slots[j].Time.AddHours(SlotHours(slots, j));
+                double overlap = ((end < to ? end : to) - slots[j].Time).TotalHours;
+                if (overlap <= 0) continue;
+                weight += overlap;
+                sum += overlap * slots[j].Value;
+            }
+
+            result.Add(new Slot(from, weight > 0 ? sum / weight : slots[i].Value));
+        }
+
+        return result;
+    }
+
+    /// <param name="Hold">True when energy should be kept for a later window that pays better.</param>
+    /// <param name="LaterPrice">Smoothed price of the best later window, before the horizon discount.</param>
+    /// <param name="LaterDiscountedPrice">The same price after the horizon discount; the window is chosen on this.</param>
+    /// <param name="NowPrice">30-minute average of the feed-in price from now.</param>
+    /// <param name="WindowHours">Length of the best later window, where prices stay within 10% of its peak.</param>
+    public record LookAhead(bool Hold, DateTimeOffset? LaterTime, double LaterPrice, double LaterDiscountedPrice, double NowPrice, double LaterCapacityKwh, double WindowHours, string Reason)
     {
         public string Text(Func<DateTimeOffset, string> fmt) => LaterTime is null
             ? "no later window to compare"
             : (Hold ? "HOLD" : "SELL NOW") +
-              $" - now ${NowPrice:0.###}/kWh vs best later {fmt(LaterTime.Value)} ${LaterPrice:0.###}/kWh " +
-              $"(forecast discounted for distance; stored energy has the same discharge loss now or later)";
-    }
-
-    /// <summary>Compares the current feed-in price with the best later (haircut) price. Energy already stored is discharged once either way, so no efficiency or degradation penalty applies to waiting.</summary>
-    public static LookAhead CompareWithLater(IReadOnlyList<Slot> slots, DateTimeOffset now, double exportPowerKw, double? livePrice = null)
-    {
-        if (slots.Count < 2) return new LookAhead(false, null, 0, 0, livePrice ?? (slots.Count == 1 ? slots[0].Value : 0), 0);
-
-        double nowPrice = livePrice ?? slots[0].Value;
-        Slot? best = null;
-        double bestNet = double.MinValue;
-        double capacity = 0;
-        for (int i = livePrice is null ? 1 : 0; i < slots.Count; i++)
-        {
-            if ((slots[i].Time - now).TotalMinutes < 30) continue;
-            double price = slots[i].Value * Haircut((slots[i].Time - now).TotalHours);
-            double net = price;
-            if (net > nowPrice) capacity += MaxSlotHours * Math.Max(exportPowerKw, 0.1);
-            if (net > bestNet) { bestNet = net; best = new Slot(slots[i].Time, price); }
-        }
-
-        return new LookAhead(bestNet > nowPrice, best!.Time, best.Value, Math.Round(bestNet, 3), nowPrice, capacity);
+              $" - now ${NowPrice:0.###}/kWh (30-min average) vs best later {fmt(LaterTime.Value)} ${LaterPrice:0.###}/kWh " +
+              $"(${LaterDiscountedPrice:0.###} after the distance discount); {Reason}";
     }
 
     /// <summary>
-    /// Applies the look-ahead to a threshold: when a later window pays better, the threshold is lifted above the current
-    /// price so nothing is sold now (any excess that later windows cannot carry is left to the battery-full case).
+    /// Compares the current feed-in price with the best later window. Both sides use 30-minute averages, so a short
+    /// blip counts for little. Energy already stored is discharged once either way, so waiting carries no efficiency
+    /// or degradation penalty. Returns SELL NOW when the live price is a spike, the current price beats the later
+    /// window by <see cref="SellNowMarginDollars"/>, the window has started or is about to, or it cannot carry the surplus.
     /// </summary>
-    public static double ApplyLookAhead(double threshold, LookAhead look, double surplusKwh) =>
-        look.Hold
-            ? Math.Max(threshold, Math.Round(look.NowPrice + MarginDollars, 3))
-            : threshold;
+    public static LookAhead CompareWithLater(IReadOnlyList<Slot> slots, DateTimeOffset now, double exportPowerKw, double? livePrice = null, double surplusKwh = 0)
+    {
+        var series = new List<Slot>();
+        if (livePrice is double live) series.Add(new Slot(now, live));
+        series.AddRange(slots.Where(s => livePrice is null || s.Time > now));
+        if (series.Count == 0)
+            return new LookAhead(false, null, 0, 0, livePrice ?? 0, 0, 0, "no forecast");
+
+        var smooth = Smooth(series);
+        double nowPrice = smooth[0].Value;
+        double rawNow = livePrice ?? series[0].Value;
+
+        int best = -1;
+        double bestDiscounted = double.MinValue;
+        for (int i = 1; i < smooth.Count; i++)
+        {
+            double hours = (smooth[i].Time - now).TotalHours;
+            if (hours < SmoothingHours - 1e-9) continue;
+            double discounted = smooth[i].Value * HorizonFactor(hours);
+            if (discounted > bestDiscounted) { bestDiscounted = discounted; best = i; }
+        }
+
+        if (best < 0)
+            return new LookAhead(false, null, 0, 0, nowPrice, 0, 0, "no later window");
+
+        double bestRaw = smooth[best].Value;
+        double floor = bestRaw * PlateauFraction;
+        int lo = best, hi = best;
+        while (lo - 1 >= 1 && (smooth[lo - 1].Time - now).TotalHours >= SmoothingHours - 1e-9 && smooth[lo - 1].Value >= floor) lo--;
+        while (hi + 1 < smooth.Count && smooth[hi + 1].Value >= floor) hi++;
+        double windowHours = 0;
+        for (int i = lo; i <= hi; i++) windowHours += SlotHours(smooth, i);
+        windowHours = Math.Max(windowHours, MaxSlotHours);
+        double capacity = windowHours * Math.Max(exportPowerKw, 0.1);
+
+        string reason;
+        if (rawNow >= SpikeDollars) reason = "live price is a spike";
+        else if (nowPrice >= bestRaw + SellNowMarginDollars) reason = "now beats the later window by more than the margin";
+        else if (smooth[best].Time <= now.AddHours(SmoothingHours)) reason = "the best window has started or is about to";
+        else if (surplusKwh > 0 && capacity < surplusKwh) reason = "the later window cannot carry the surplus";
+        else reason = "the later window pays more";
+
+        bool hold = reason == "the later window pays more";
+        return new LookAhead(hold, smooth[best].Time, Math.Round(bestRaw, 3), Math.Round(bestDiscounted, 3), Math.Round(nowPrice, 3), capacity, windowHours, reason);
+    }
+
+    /// <summary>
+    /// Applies the look-ahead to a threshold. On HOLD the price is the best later window's price, and at least the live
+    /// price plus half a cent so a live blip cannot start the export, capped at the highest forecast feed-in price.
+    /// On SELL NOW the threshold is unchanged.
+    /// </summary>
+    public static double ApplyLookAhead(double threshold, LookAhead look, double? livePrice, double forecastMaxPrice)
+    {
+        if (!look.Hold) return threshold;
+
+        double live = livePrice ?? look.NowPrice;
+        double floor = live + HoldMarginDollars;
+        double price = Math.Max(Math.Max(threshold, look.LaterPrice), floor);
+        return Math.Round(Math.Min(price, Math.Max(forecastMaxPrice, floor)), 3);
+    }
+
+    public const double MinExportWatts = 1000;
+    public const double MaxExportWatts = 5000;
+    public const double SpikeExportWatts = 10000;
+
+    /// <summary>
+    /// Export power that spreads the surplus over the best window, in 500 W steps within 1000-5000 W.
+    /// A live price above $1.00 allows 10000 W.
+    /// </summary>
+    public static int SuggestExportPowerLimit(double? livePrice, double surplusKwh, double windowHours)
+    {
+        if (livePrice > 1.00) return (int)SpikeExportWatts;
+        if (windowHours <= 0) return (int)MaxExportWatts;
+
+        double watts = Math.Ceiling(Math.Max(surplusKwh, 0) / windowHours * 1000 / 500) * 500;
+        return (int)Math.Clamp(watts, MinExportWatts, MaxExportWatts);
+    }
 
     /// <returns>The suggested export price, or null when there are no usable slots.</returns>
     public static double? SuggestThreshold(IReadOnlyList<Slot> slots, DateTimeOffset now, double surplusKwh, double exportPowerKw)

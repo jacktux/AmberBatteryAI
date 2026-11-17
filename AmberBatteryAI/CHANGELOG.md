@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Look-ahead no longer flips to SELL NOW on short price blips. Feed-in is smoothed with a rolling 30-minute average (5-minute slots averaged, 30-minute slots as-is), so one 5-minute slot cannot win alone or trigger a sale.
+- Later prices are discounted by distance: none up to 2 h, rising linearly to a 10% haircut at 4 h, and the existing haircut beyond that. The raw price is kept alongside the discounted one.
+- SELL NOW only when the current price is at least the best later price + $0.015, the best later window starts within 30 minutes, the live price is $0.50 or more, or the later window cannot carry the surplus. Otherwise HOLD.
+- On HOLD the suggested export price is the highest of the base suggestion, the best later price and live + $0.005, capped at the forecast maximum.
+- New computed value `suggested_export_power_limit`: 10000 W if feed-in is above $1.00, otherwise the surplus spread over the best window, rounded up to 500 W and clamped to 1000-5000 W. The prompt and the override layer now use it instead of a fixed 5000 W. Add it to any saved custom prompt (see CONFIGURABLE_PROMPT.md).
+- On HOLD a DISCHARGE decision is forced to SELF CONSUME so the Sigenstor automation cannot export early.
+- Added the `AmberBatteryAI.Tests` xunit project covering the above.
+
 ## 1.5.2
 
 ### Changed

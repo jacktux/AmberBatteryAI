@@ -45,6 +45,8 @@ public record DecisionComputed
     [JsonPropertyName("surplus_kwh")] public string? SurplusKwh { get; init; }
     [JsonPropertyName("best_feed_in_window")] public string? BestFeedInWindow { get; init; }
     [JsonPropertyName("suggested_export_price")] public string? SuggestedExportPrice { get; init; }
+    [JsonPropertyName("suggested_export_power_limit")] public string? SuggestedExportPowerLimit { get; init; }
+    [JsonPropertyName("look_ahead_hold")] public bool? LookAheadHold { get; init; }
     [JsonPropertyName("hot_water_full_check")] public string? HotWaterFull { get; init; }
     [JsonPropertyName("export_start_soc")] public string? ExportStartSoc { get; init; }
     [JsonPropertyName("import_min_stop_soc")] public string? ImportMinStopSoc { get; init; }

@@ -26,7 +26,7 @@ public class DecisionHistoryService
     private static readonly string[] CsvColumns =
     {
         "timestamp", "outcome", "mode", "soc_percent", "battery_power_w", "home_power_w", "hot_water_temp_c",
-        "floor_kwh", "surplus_kwh", "best_feed_in_window", "suggested_export_price", "hot_water_full_check",
+        "floor_kwh", "surplus_kwh", "best_feed_in_window", "suggested_export_price", "suggested_export_power_limit", "hot_water_full_check",
         "ai_export_price", "ai_export_stop_soc",
         "export_price", "export_stop_soc", "export_start_soc", "export_power_limit",
         "import_price", "import_stop_soc", "import_start_soc", "import_power_limit",
@@ -134,6 +134,7 @@ public class DecisionHistoryService
                 e.Computed?.SurplusKwh,
                 e.Computed?.BestFeedInWindow,
                 e.Computed?.SuggestedExportPrice,
+                e.Computed?.SuggestedExportPowerLimit,
                 e.Computed?.HotWaterFull,
                 Num(e.AiResponse?.ExportPrice),
                 Num(e.AiResponse?.ExportStopSoc),

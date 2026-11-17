@@ -36,6 +36,7 @@ public class BatteryOptimizerWorker(
         - export_price and import_price are in $/kWh.
         - export_stop_soc and import_stop_soc are percentages between 0 and 100.
         - export_power_limit and import_power_limit are in watts.
+        - export_power_limit must be suggested_export_power_limit from COMPUTED VALUES, copied unchanged.
         - hot_water is the HOT WATER section result.
         - reasoning must cover every DECISION STEP in 180 words or fewer.
         """;
@@ -237,7 +238,7 @@ public class BatteryOptimizerWorker(
         double exportSocHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportSocHysteresisEntity"] ?? "input_number.export_soc_hysteresis", SocPlanner.DefaultHysteresis, ct);
         double importSocHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ImportSocHysteresisEntity"] ?? "input_number.import_soc_hysteresis", SocPlanner.DefaultHysteresis, ct);
 
-        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, ct);
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, ct);
 
         bool floorParsed = double.TryParse(floorKwh, NumberStyles.Float, CultureInfo.InvariantCulture, out double floorKwhValue) && batteryCapacityKwh > 0;
         double floorSoc = floorParsed
@@ -275,6 +276,8 @@ public class BatteryOptimizerWorker(
                 SurplusKwh = surplusKwh,
                 BestFeedInWindow = bestWindow,
                 SuggestedExportPrice = suggestedExportPrice,
+                SuggestedExportPowerLimit = suggestedExportPowerLimit,
+                LookAheadHold = lookAheadHold,
                 HotWaterFull = hotWaterFull.Text,
                 ExportStartSoc = exportStartSocText,
                 ImportMinStopSoc = importMinStopSocText,
@@ -290,11 +293,11 @@ public class BatteryOptimizerWorker(
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
             // Use custom prompt but interpolate live telemetry variables
-            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text, exportStartSocText, importMinStopSocText);
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText);
         }
         else
         {
-            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, hotWaterFull.Text, exportStartSocText, importMinStopSocText);
+            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText);
         }
 
         prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
@@ -352,6 +355,22 @@ public class BatteryOptimizerWorker(
             logger.LogWarning("Floor ('{Floor}') or suggested export price ('{Suggested}') unavailable; disabling export.", floorKwh, suggestedExportPrice);
             decision = decision with { ExportPrice = 9.99 };
             overrides.Add("export_price 9.99: export disabled because the floor or suggested export price was unavailable.");
+        }
+
+        // The export power limit is sized by the system (spike 10000 W, otherwise the surplus spread over the best window).
+        if (int.TryParse(suggestedExportPowerLimit, NumberStyles.Integer, CultureInfo.InvariantCulture, out int suggestedLimit))
+        {
+            if (Math.Abs(decision.ExportPowerLimit - suggestedLimit) > 0.5)
+                overrides.Add($"export_power_limit {F(decision.ExportPowerLimit)} -> {suggestedLimit} (computed)");
+            decision = decision with { ExportPowerLimit = suggestedLimit };
+        }
+
+        // While the look-ahead says HOLD the export price (set above) is above the live price, and the mode must not
+        // be DISCHARGE, so the export automation cannot discharge early.
+        if (lookAheadHold && string.Equals(decision.Mode?.Trim(), "DISCHARGE", StringComparison.OrdinalIgnoreCase))
+        {
+            decision = decision with { Mode = "SELF CONSUME" };
+            overrides.Add("mode DISCHARGE -> SELF CONSUME (look-ahead says HOLD for a better later window)");
         }
 
         double minExpPrice = config.GetValue("Optimizer:MinExportPrice", 0.08);
@@ -711,7 +730,7 @@ public class BatteryOptimizerWorker(
         }
     }
 
-    private static async Task<(string FloorKwh, string SurplusKwh, string BestWindow, string SuggestedExportPrice)> BuildComputedValuesAsync(
+    private static async Task<(string FloorKwh, string SurplusKwh, string BestWindow, string SuggestedExportPrice, string SuggestedExportPowerLimit, bool LookAheadHold)> BuildComputedValuesAsync(
         HttpClient client,
         string soc,
         double batteryCapacityKwh,
@@ -724,15 +743,15 @@ public class BatteryOptimizerWorker(
         CancellationToken ct)
     {
         if (!double.TryParse(soc, out double socPct))
-            return ("unknown", "unknown", "unknown", "unknown");
+            return ("unknown", "unknown", "unknown", "unknown", "unknown", false);
 
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
         double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
         double sellableKwh = SocPlanner.SellableKwh(storedKwh, floorKwh, batteryCapacityKwh);
-        var (bestWindow, suggested) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, exportPowerKw, ct);
+        var (bestWindow, suggested, powerLimit, hold) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, surplusKwh, exportPowerKw, ct);
 
-        return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested);
+        return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested, powerLimit, hold);
     }
 
     // Conservative daytime assumptions: solar haircut for forecast error, and a daytime house load that
@@ -751,7 +770,7 @@ public class BatteryOptimizerWorker(
         return SocPlanner.FloorKwh(capacityKwh, avgLoadKw, netSolarKwh, heatingReserveKwh, hour);
     }
 
-    private static async Task<(string Window, string Suggested)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double surplusKwh, double exportPowerKw, CancellationToken ct)
+    private static async Task<(string Window, string Suggested, string PowerLimit, bool Hold)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double sellableKwh, double surplusKwh, double exportPowerKw, CancellationToken ct)
     {
         try
         {
@@ -760,7 +779,7 @@ public class BatteryOptimizerWorker(
                 !attrs.TryGetProperty("forecast", out var forecastArray) ||
                 forecastArray.ValueKind != JsonValueKind.Array)
             {
-                return ("unknown", "unknown");
+                return ("unknown", "unknown", "unknown", false);
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -791,36 +810,26 @@ public class BatteryOptimizerWorker(
             }
 
             if (slots.Count == 0)
-                return ("unknown", "unknown");
-
-            DateTimeOffset bestStart = slots[0].Time;
-            double bestAvg = double.MinValue;
-            for (int i = 0; i < slots.Count; i++)
-            {
-                int count = i + 1 < slots.Count ? 2 : 1;
-                double avg = slots.GetRange(i, count).Average(s => s.Value);
-                if (avg > bestAvg)
-                {
-                    bestAvg = avg;
-                    bestStart = slots[i].Time;
-                }
-            }
+                return ("unknown", "unknown", "unknown", false);
 
             var plannerSlots = slots.Select(s => new ExportPricePlanner.Slot(s.Time, s.Value)).ToList();
-            double? suggested = ExportPricePlanner.SuggestThreshold(plannerSlots, now, surplusKwh, exportPowerKw);
+            double? suggested = ExportPricePlanner.SuggestThreshold(plannerSlots, now, sellableKwh, exportPowerKw);
             if (suggested is null)
-                return ("unknown", "unknown");
+                return ("unknown", "unknown", "unknown", false);
 
             double? livePrice = double.TryParse(json.TryGetProperty("state", out var st) ? st.GetString() : null, NumberStyles.Float, CultureInfo.InvariantCulture, out double lp) ? lp : null;
-            var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw, livePrice);
-            double threshold = ExportPricePlanner.ApplyLookAhead(suggested.Value, look, surplusKwh);
+            var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw, livePrice, sellableKwh);
+            double threshold = ExportPricePlanner.ApplyLookAhead(suggested.Value, look, livePrice, plannerSlots.Max(s => s.Value));
+            int powerLimit = ExportPricePlanner.SuggestExportPowerLimit(livePrice, surplusKwh, look.WindowHours);
 
-            string window = $"{bestStart.ToLocalTime():HH:mm} @ ${Math.Round(bestAvg, 3)}/kWh | look-ahead: {look.Text(t => t.ToLocalTime().ToString("HH:mm"))}";
-            return (window, threshold.ToString("0.000"));
+            // Windows are 30-minute averages, so a single 5-minute blip is not reported as the best window.
+            var bestSmoothed = ExportPricePlanner.Smooth(plannerSlots).MaxBy(s => s.Value)!;
+            string window = $"{bestSmoothed.Time.ToLocalTime():HH:mm} @ ${Math.Round(bestSmoothed.Value, 3)}/kWh (30-min average) | look-ahead: {look.Text(t => t.ToLocalTime().ToString("HH:mm"))}";
+            return (window, threshold.ToString("0.000"), powerLimit.ToString(), look.Hold);
         }
         catch
         {
-            return ("unavailable", "unavailable");
+            return ("unavailable", "unavailable", "unavailable", false);
         }
     }
 
@@ -929,6 +938,7 @@ public class BatteryOptimizerWorker(
         string surplusKwh,
         string bestWindow,
         string suggestedExportPrice,
+        string suggestedExportPowerLimit,
         string hotWaterFull,
         string exportStartSoc,
         string importMinStopSoc)
@@ -1052,7 +1062,7 @@ public class BatteryOptimizerWorker(
 
                 - Respect the configured minimum and maximum SOC limits.
                 - Do not request export or import power below the minimum practical operating power.
-                - Use the highest safe power limit only when the price signal clearly justifies it.
+                - Set export_power_limit to suggested_export_power_limit (the system sizes it to the best export window). Use the highest safe import power limit only when the price signal clearly justifies it.
                 - Avoid rapid or unnecessary cycling.
                 - If the battery is already charging or discharging, consider whether changing direction would create unnecessary losses.
                 - The export automation only starts when SOC is above export_start_soc, so choose DISCHARGE only when the current SOC is above it.
@@ -1101,6 +1111,7 @@ public class BatteryOptimizerWorker(
                 - surplus_kWh = {{surplusKwh}}
                 - best_feed_in_window = {{bestWindow}}
                 - suggested_export_price = {{suggestedExportPrice}}
+                - suggested_export_power_limit = {{suggestedExportPowerLimit}}
                 - hot_water_full_ok = {{hotWaterFull}}
                 - export_start_soc = {{exportStartSoc}}
                 - import_min_stop_soc = {{importMinStopSoc}}
@@ -1126,6 +1137,7 @@ public class BatteryOptimizerWorker(
         string surplusKwh,
         string bestWindow,
         string suggestedExportPrice,
+        string suggestedExportPowerLimit,
         string hotWaterFull,
         string exportStartSoc,
         string importMinStopSoc)
@@ -1149,6 +1161,7 @@ public class BatteryOptimizerWorker(
                         { "{{surplusKwh}}", surplusKwh },
                         { "{{bestWindow}}", bestWindow },
                         { "{{suggestedExportPrice}}", suggestedExportPrice },
+                        { "{{suggestedExportPowerLimit}}", suggestedExportPowerLimit },
                         { "{{hotWaterFull}}", hotWaterFull },
                         { "{{exportStartSoc}}", exportStartSoc },
                         { "{{importMinStopSoc}}", importMinStopSoc }

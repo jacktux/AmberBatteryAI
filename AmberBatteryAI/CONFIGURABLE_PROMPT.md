@@ -97,6 +97,24 @@ The default prompt is dynamically generated with live values (time, prices, fore
 5. **Telemetry Interpretation**: How to read prices, solar, weather
 6. **JSON Response Format**: Must match the required output schema
 
+### Computed Values Placeholders
+
+The system calculates these values and replaces the placeholders before each run. Put them in a block such as `COMPUTED VALUES` and tell the AI to trust them:
+
+```
+COMPUTED VALUES (calculated by the system; trust these, do not recompute them)
+- floor_kWh = {{floorKwh}}
+- surplus_kWh = {{surplusKwh}}
+- best_feed_in_window = {{bestWindow}}
+- suggested_export_price = {{suggestedExportPrice}}
+- suggested_export_power_limit = {{suggestedExportPowerLimit}}
+- hot_water_full_ok = {{hotWaterFull}}
+- export_start_soc = {{exportStartSoc}}
+- import_min_stop_soc = {{importMinStopSoc}}
+```
+
+`best_feed_in_window` ends with the look-ahead result, HOLD or SELL NOW. `suggested_export_power_limit` is in watts; the system enforces it, so the prompt should tell the AI to copy it into `export_power_limit` instead of using a fixed value.
+
 ### Required JSON Response Format
 
 The AI must always return valid JSON with these exact properties:
