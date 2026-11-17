@@ -7,7 +7,7 @@
         "ASPNETCORE_ENVIRONMENT": "Development",
         "BaseUrl": "https://ha.bromley.au"
       },
-      "applicationUrl": "https://localhost:53255;http://localhost:53256"
+      "applicationUrl": "https://localhost:53255"
     }
   }
 }
