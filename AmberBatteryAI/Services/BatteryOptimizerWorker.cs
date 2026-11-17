@@ -1020,7 +1020,7 @@ public class BatteryOptimizerWorker(
                 The requirement is to be at ~30% SOC at 06:00 next day (hard floor 20%). floor_kWh is the system's calculation of the minimum energy to hold now, from forecast solar, expected load and overnight needs. Do not use a fixed SOC at 18:00.
 
                 - Only export energy above floor_kWh. Keep the rest in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
-                - Look ahead: best_feed_in_window includes a look-ahead comparing the current feed-in price with the best later price, net of 0.90 round-trip efficiency and $0.02/kWh degradation. If it says HOLD, do not sell now; keep the energy for the later window (suggested_export_price is already set above the current price). If it says SELL NOW, sell now.
+                - Look ahead: best_feed_in_window includes a look-ahead comparing the current feed-in price with the best later price (discounted for forecast distance; stored energy has the same loss whether sold now or later). If it says HOLD, do not sell now; keep the energy for the later window (suggested_export_price is already set above the current price). If it says SELL NOW, sell now.
                 - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above floor_kWh (for example, if solar charged the battery to 85-100%) is excess and should be exported during the evening peak at a good feed-in price.
                 - Set export_price just below the highest realistic feed-in price that is likely to occur.
                 - Do not discharge too early at a low price when a higher price is forecast soon.

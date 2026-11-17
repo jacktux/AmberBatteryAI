@@ -21,8 +21,6 @@ public static class ExportPricePlanner
         : hoursAhead >= 10 ? 0.80
         : 1.00 - 0.20 * (hoursAhead - 4) / 6;
 
-    public const double RoundTripEfficiency = 0.90;
-    public const double DegradationDollarsPerKwh = 0.02;
 
     /// <param name="Hold">True when energy should be kept for a later window that pays better after losses.</param>
     public record LookAhead(bool Hold, DateTimeOffset? LaterTime, double LaterPrice, double LaterNetPrice, double NowPrice, double LaterCapacityKwh)
@@ -31,10 +29,10 @@ public static class ExportPricePlanner
             ? "no later window to compare"
             : (Hold ? "HOLD" : "SELL NOW") +
               $" - now ${NowPrice:0.###}/kWh vs best later {fmt(LaterTime.Value)} ${LaterPrice:0.###}/kWh " +
-              $"(${LaterNetPrice:0.###} net of {RoundTripEfficiency:0%} efficiency and ${DegradationDollarsPerKwh:0.00} degradation)";
+              $"(forecast discounted for distance; stored energy has the same discharge loss now or later)";
     }
 
-    /// <summary>Compares the current feed-in price with the best later (haircut) price, net of efficiency and degradation.</summary>
+    /// <summary>Compares the current feed-in price with the best later (haircut) price. Energy already stored is discharged once either way, so no efficiency or degradation penalty applies to waiting.</summary>
     public static LookAhead CompareWithLater(IReadOnlyList<Slot> slots, DateTimeOffset now, double exportPowerKw)
     {
         if (slots.Count < 2) return new LookAhead(false, null, 0, 0, slots.Count == 1 ? slots[0].Value : 0, 0);
@@ -46,7 +44,7 @@ public static class ExportPricePlanner
         for (int i = 1; i < slots.Count; i++)
         {
             double price = slots[i].Value * Haircut((slots[i].Time - now).TotalHours);
-            double net = price * RoundTripEfficiency - DegradationDollarsPerKwh;
+            double net = price;
             if (net > nowPrice) capacity += MaxSlotHours * Math.Max(exportPowerKw, 0.1);
             if (net > bestNet) { bestNet = net; best = new Slot(slots[i].Time, price); }
         }
@@ -55,7 +53,7 @@ public static class ExportPricePlanner
     }
 
     /// <summary>
-    /// Applies the look-ahead to a threshold: when a later window pays better net of losses and can carry the surplus,
+    /// Applies the look-ahead to a threshold: when a later window pays better and can carry the surplus,
     /// the threshold is lifted above the current price so nothing is sold now.
     /// </summary>
     public static double ApplyLookAhead(double threshold, LookAhead look, double surplusKwh) =>
