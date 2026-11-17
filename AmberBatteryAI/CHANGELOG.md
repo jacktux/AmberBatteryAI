@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.2
 
 ### Changed
 - The fixed "60% at 18:00" requirement is replaced by "30% SOC at 06:00 next day" (20% hard floor kept). `floor_kWh` is now the energy needed at 18:00 for the overnight load plus the 30% morning target, less the net solar still to come (after hot water). After 18:00 it is 30% plus the load until 06:00, as before.
