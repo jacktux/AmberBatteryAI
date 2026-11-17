@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- More data per decision in the decision log (JSONL, plus flat CSV columns): `telemetry` (solar power, grid import/export power, the current 5-minute import and feed-in prices, SOC, battery and home power), `active_setpoints` (the export/import helpers and the hot water mode read back from Home Assistant after the write, so the log shows what is really active, not only what was requested) and `feed_in_forecast` (the feed-in forecast points with their lead time). Any value is null when its entity is missing.
+- Telemetry sampler: every 5 minutes (`telemetry_sample_minutes`, 0 turns it off) the add-on records the same telemetry to `samples-YYYY-MM-DD.jsonl`. It only reads; nothing is written to Home Assistant. Samples are kept for `DecisionLogRetentionDays`.
+- Daily P&L (`daily-pnl.csv` and `daily-pnl.json` next to the decision log, `GET /api/pnl?days=&format=json|csv`, and a table on the web page): per day, kWh and $ exported and imported, avoided import (house load served by solar or the battery, valued at the import price), net cash, the average price achieved on exports, the best feed-in price of the day and the best 30-minute average. It is built from the samples (each held until the next, at most three intervals) rather than from Home Assistant history, so it needs no recorder setup and works the same on every install. It is only as accurate as the sampling interval.
+- Feed-in forecast error: each decision's forecast points are compared with the price that arrived (average of the samples inside the slot) and recorded as actual minus forecast, in lead-time buckets 0-1h, 1-2h, 2-4h, 4-8h and 8h+. `forecast-errors.csv` holds the records and `forecast-bias.json` the rolling 14-day mean error and mean absolute error per bucket (also `GET /api/forecast-bias` and a table on the web page). This is recorded and shown only; it is not used in decisions.
+- New options: `grid_power_entity` (default `sensor.la_sigenstor1_grid_power`), `solar_power_entity` (default `sensor.la_sigenstor1_solar_power`), `grid_power_positive_is_import` (default true; set false if the grid sensor reads positive while exporting) and `telemetry_sample_minutes` (default 5). Check the two power entity IDs against your Home Assistant, as the defaults are guesses.
+
 ### Changed
 - Look-ahead no longer flips to SELL NOW on short price blips. Feed-in is smoothed with a rolling 30-minute average (5-minute slots averaged, 30-minute slots as-is), so one 5-minute slot cannot win alone or trigger a sale.
 - Later prices are discounted by distance: none up to 2 h, rising linearly to a 10% haircut at 4 h, and the existing haircut beyond that. The raw price is kept alongside the discounted one.

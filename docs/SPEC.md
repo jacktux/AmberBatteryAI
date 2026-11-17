@@ -48,6 +48,7 @@ The prompt has these sections: OBJECTIVE (30% SOC at 06:00, sell surplus at the 
 - JSON Lines, one file per day (decisions-YYYY-MM-DD.jsonl) next to the saved prompt. Each line has the timestamp, outcome, model, inputs, computed values, raw AI response, applied values (including start SOCs), overrides list, and the full prompt. Delete files older than Optimizer:DecisionLogRetentionDays (default 30). Never let logging failures stop the control loop.
 - Publish each run to Home Assistant: POST /api/states/sensor.battery_ai_decision (state = AI mode, or SKIPPED/NO DECISION/ERROR; attributes = applied settings, start SOCs, overrides, reasoning, hot water check; force_update true) and logbook.log with the reasoning. Escape template braces in the message.
 - GET /api/decisions?days=&limit=&format=json|csv|jsonl (CSV with a UTF-8 BOM and one flat summary row per run).
+- Each decision also carries `telemetry` (solar, grid import/export, live prices), `active_setpoints` (helpers read back after writing) and `feed_in_forecast`. A sampler records the same telemetry every `Telemetry:SampleIntervalMinutes` (default 5) to samples-YYYY-MM-DD.jsonl. From these the add-on writes daily-pnl.csv/json (GET /api/pnl) and forecast-errors.csv / forecast-bias.json (GET /api/forecast-bias: actual minus forecast feed-in by lead bucket 0-1h, 1-2h, 2-4h, 4-8h, 8h+, rolling 14 days). Record and show only.
 
 ## Dashboard (dark theme, one page, works behind HA ingress with relative URLs)
 
