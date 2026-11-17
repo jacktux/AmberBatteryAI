@@ -33,16 +33,17 @@ public static class ExportPricePlanner
     }
 
     /// <summary>Compares the current feed-in price with the best later (haircut) price. Energy already stored is discharged once either way, so no efficiency or degradation penalty applies to waiting.</summary>
-    public static LookAhead CompareWithLater(IReadOnlyList<Slot> slots, DateTimeOffset now, double exportPowerKw)
+    public static LookAhead CompareWithLater(IReadOnlyList<Slot> slots, DateTimeOffset now, double exportPowerKw, double? livePrice = null)
     {
-        if (slots.Count < 2) return new LookAhead(false, null, 0, 0, slots.Count == 1 ? slots[0].Value : 0, 0);
+        if (slots.Count < 2) return new LookAhead(false, null, 0, 0, livePrice ?? (slots.Count == 1 ? slots[0].Value : 0), 0);
 
-        double nowPrice = slots[0].Value;
+        double nowPrice = livePrice ?? slots[0].Value;
         Slot? best = null;
         double bestNet = double.MinValue;
         double capacity = 0;
-        for (int i = 1; i < slots.Count; i++)
+        for (int i = livePrice is null ? 1 : 0; i < slots.Count; i++)
         {
+            if ((slots[i].Time - now).TotalMinutes < 30) continue;
             double price = slots[i].Value * Haircut((slots[i].Time - now).TotalHours);
             double net = price;
             if (net > nowPrice) capacity += MaxSlotHours * Math.Max(exportPowerKw, 0.1);
@@ -53,11 +54,11 @@ public static class ExportPricePlanner
     }
 
     /// <summary>
-    /// Applies the look-ahead to a threshold: when a later window pays better and can carry the surplus,
-    /// the threshold is lifted above the current price so nothing is sold now.
+    /// Applies the look-ahead to a threshold: when a later window pays better, the threshold is lifted above the current
+    /// price so nothing is sold now (any excess that later windows cannot carry is left to the battery-full case).
     /// </summary>
     public static double ApplyLookAhead(double threshold, LookAhead look, double surplusKwh) =>
-        look.Hold && look.LaterCapacityKwh >= surplusKwh
+        look.Hold
             ? Math.Max(threshold, Math.Round(look.NowPrice + MarginDollars, 3))
             : threshold;
 

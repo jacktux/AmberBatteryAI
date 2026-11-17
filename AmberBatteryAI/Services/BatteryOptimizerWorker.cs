@@ -800,7 +800,8 @@ public class BatteryOptimizerWorker(
             if (suggested is null)
                 return ("unknown", "unknown");
 
-            var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw);
+            double? livePrice = double.TryParse(json.TryGetProperty("state", out var st) ? st.GetString() : null, NumberStyles.Float, CultureInfo.InvariantCulture, out double lp) ? lp : null;
+            var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw, livePrice);
             double threshold = ExportPricePlanner.ApplyLookAhead(suggested.Value, look, surplusKwh);
 
             string window = $"{bestStart.ToLocalTime():HH:mm} @ ${Math.Round(bestAvg, 3)}/kWh | look-ahead: {look.Text(t => t.ToLocalTime().ToString("HH:mm"))}";
