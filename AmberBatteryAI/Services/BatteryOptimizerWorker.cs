@@ -11,6 +11,7 @@ public class BatteryOptimizerWorker(
     IConfiguration config,
     OptimizerState state,
     DecisionHistoryService history,
+    TelemetryReader telemetry,
     ILogger<BatteryOptimizerWorker> logger) : BackgroundService
 {
     private const string DefaultAiModel = "gemini-3.5-flash-lite";
@@ -161,6 +162,7 @@ public class BatteryOptimizerWorker(
         var hotWaterTemp = await GetEntityStateWithUnitAsync(haClient, hotWaterTankEntity, ct);
         var gridStatus = await GetEntityStateAsync(haClient, gridStatusEntity, ct);
         state.SetGridStatus(gridStatus);
+        var telemetrySample = await telemetry.ReadSampleAsync(haClient, ct);
 
         if (!string.Equals(gridStatus.Trim(), "On grid", StringComparison.OrdinalIgnoreCase))
         {
@@ -172,6 +174,7 @@ public class BatteryOptimizerWorker(
             {
                 Outcome = DecisionOutcome.Skipped,
                 Note = $"Grid status is '{gridStatus}', not 'On grid'; settings left unchanged.",
+                Telemetry = telemetrySample,
                 Inputs = new DecisionInputs
                 {
                     Soc = soc,
@@ -257,6 +260,8 @@ public class BatteryOptimizerWorker(
 
         _pending = entry = entry with
         {
+            Telemetry = telemetrySample,
+            FeedInForecast = await telemetry.ReadFeedInForecastAsync(haClient, forecastHours, ct),
             Inputs = new DecisionInputs
             {
                 Soc = soc,
@@ -490,6 +495,9 @@ public class BatteryOptimizerWorker(
         {
             logger.LogWarning("AI returned unrecognised hot_water value '{HotWater}'; hot water mode unchanged.", decision.HotWater);
         }
+
+        // Read back what Home Assistant actually holds now (helpers can clamp or reject a written value).
+        _pending = entry = entry with { ActiveSetpoints = await telemetry.ReadSetpointsAsync(haClient, ct) };
 
         string telemetrySnapshot = $"SOC: {soc}% ({kwhBudgetSummary}) | Battery: {batteryPower} | Home: {homePower} | Solar: {solarSummary}";
         state.RecordSuccess(

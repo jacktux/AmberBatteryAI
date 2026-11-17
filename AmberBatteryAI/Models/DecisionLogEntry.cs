@@ -21,6 +21,9 @@ public record DecisionLogEntry
     [JsonPropertyName("computed")] public DecisionComputed? Computed { get; init; }
     [JsonPropertyName("ai_response")] public OptimizerDecision? AiResponse { get; init; }
     [JsonPropertyName("applied")] public DecisionApplied? Applied { get; init; }
+    [JsonPropertyName("telemetry")] public TelemetrySample? Telemetry { get; init; }
+    [JsonPropertyName("active_setpoints")] public ActiveSetpoints? ActiveSetpoints { get; init; }
+    [JsonPropertyName("feed_in_forecast")] public List<ForecastPoint>? FeedInForecast { get; init; }
     [JsonPropertyName("overrides")] public List<string> Overrides { get; init; } = new();
     [JsonPropertyName("prompt")] public string? Prompt { get; init; }
 }

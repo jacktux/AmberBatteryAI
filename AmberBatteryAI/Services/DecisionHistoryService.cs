@@ -30,7 +30,11 @@ public class DecisionHistoryService
         "ai_export_price", "ai_export_stop_soc",
         "export_price", "export_stop_soc", "export_start_soc", "export_power_limit",
         "import_price", "import_stop_soc", "import_start_soc", "import_power_limit",
-        "ai_hot_water", "hot_water", "overrides", "note", "reasoning"
+        "ai_hot_water", "hot_water",
+        "solar_power_w", "grid_import_w", "grid_export_w", "import_price_now", "feed_in_price_now",
+        "active_export_price", "active_export_stop_soc", "active_export_power_limit",
+        "active_import_price", "active_import_stop_soc", "active_import_power_limit", "active_hot_water",
+        "overrides", "note", "reasoning"
     };
 
     private readonly string _directory;
@@ -148,6 +152,18 @@ public class DecisionHistoryService
                 Num(e.Applied?.ImportPowerLimit),
                 e.AiResponse?.HotWater,
                 e.Applied?.HotWater,
+                Num(e.Telemetry?.SolarPowerW),
+                Num(e.Telemetry?.GridImportW),
+                Num(e.Telemetry?.GridExportW),
+                Num(e.Telemetry?.ImportPrice),
+                Num(e.Telemetry?.FeedInPrice),
+                Num(e.ActiveSetpoints?.ExportPrice),
+                Num(e.ActiveSetpoints?.ExportStopSoc),
+                Num(e.ActiveSetpoints?.ExportPowerLimit),
+                Num(e.ActiveSetpoints?.ImportPrice),
+                Num(e.ActiveSetpoints?.ImportStopSoc),
+                Num(e.ActiveSetpoints?.ImportPowerLimit),
+                e.ActiveSetpoints?.HotWater,
                 string.Join("; ", e.Overrides),
                 e.Note,
                 e.AiResponse?.Reasoning

@@ -66,6 +66,13 @@ public static class DecisionPublisher
             ["import_start_soc"] = entry.Applied?.ImportStartSoc,
             ["import_power_limit"] = entry.Applied?.ImportPowerLimit,
             ["hot_water"] = entry.Applied?.HotWater,
+            ["solar_power_w"] = entry.Telemetry?.SolarPowerW,
+            ["grid_import_w"] = entry.Telemetry?.GridImportW,
+            ["grid_export_w"] = entry.Telemetry?.GridExportW,
+            ["import_price_now"] = entry.Telemetry?.ImportPrice,
+            ["feed_in_price_now"] = entry.Telemetry?.FeedInPrice,
+            ["active_export_price"] = entry.ActiveSetpoints?.ExportPrice,
+            ["active_export_power_limit"] = entry.ActiveSetpoints?.ExportPowerLimit,
             ["overrides"] = entry.Overrides.Count > 0 ? entry.Overrides : null,
             ["note"] = Truncate(entry.Note),
             ["reasoning"] = Truncate(entry.AiResponse?.Reasoning)

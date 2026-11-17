@@ -27,6 +27,9 @@ options:
   weather_entity: "weather.welby_hourly"
   solar_forecast_entity: "sensor.solcast_pv_forecast_forecast_today"
   solar_forecast_remaining_entity: "sensor.solcast_pv_forecast_forecast_remaining_today"
+  grid_power_entity: "sensor.la_sigenstor1_grid_power"
+  solar_power_entity: "sensor.la_sigenstor1_solar_power"
+  grid_power_positive_is_import: true
   interval_minutes: 30
   forecast_hours: 12
   min_export_price: 0.08
@@ -53,6 +56,9 @@ schema:
   weather_entity: str
   solar_forecast_entity: str
   solar_forecast_remaining_entity: str
+  grid_power_entity: str?
+  solar_power_entity: str?
+  grid_power_positive_is_import: bool?
   interval_minutes: int(5,120)
   forecast_hours: int(4,24)
   min_export_price: float

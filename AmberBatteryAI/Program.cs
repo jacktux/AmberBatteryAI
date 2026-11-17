@@ -8,6 +8,7 @@ builder.Services.AddRazorPages();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<PromptStorageService>();
 builder.Services.AddSingleton<DecisionHistoryService>();
+builder.Services.AddSingleton<TelemetryReader>();
 builder.Services.AddSingleton<OptimizerState>();
 builder.Services.AddHostedService<BatteryOptimizerWorker>();
 

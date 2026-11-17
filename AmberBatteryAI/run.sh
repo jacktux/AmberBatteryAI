@@ -21,6 +21,9 @@ if [ -f "$OPTIONS_FILE" ]; then
   export HomeAssistant__WeatherEntity=$(jq -r '.weather_entity' "$OPTIONS_FILE")
   export HomeAssistant__SolarForecastEntity=$(jq -r '.solar_forecast_entity' "$OPTIONS_FILE")
   export HomeAssistant__SolarForecastRemainingEntity=$(jq -r '.solar_forecast_remaining_entity // "sensor.solcast_pv_forecast_forecast_remaining_today"' "$OPTIONS_FILE")
+  export HomeAssistant__GridPowerEntity=$(jq -r '.grid_power_entity // "sensor.la_sigenstor1_grid_power"' "$OPTIONS_FILE")
+  export HomeAssistant__SolarPowerEntity=$(jq -r '.solar_power_entity // "sensor.la_sigenstor1_solar_power"' "$OPTIONS_FILE")
+  export HomeAssistant__GridPowerPositiveIsImport=$(jq -r 'if .grid_power_positive_is_import == null then true else .grid_power_positive_is_import end' "$OPTIONS_FILE")
 
   export Optimizer__IntervalMinutes=$(jq -r '.interval_minutes' "$OPTIONS_FILE")
   export Optimizer__ForecastHours=$(jq -r '.forecast_hours' "$OPTIONS_FILE")
