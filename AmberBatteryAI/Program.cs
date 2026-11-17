@@ -9,6 +9,8 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<PromptStorageService>();
 builder.Services.AddSingleton<DecisionHistoryService>();
 builder.Services.AddSingleton<TelemetryReader>();
+builder.Services.AddSingleton<TelemetryHistoryService>();
+builder.Services.AddHostedService<TelemetrySampler>();
 builder.Services.AddSingleton<OptimizerState>();
 builder.Services.AddHostedService<BatteryOptimizerWorker>();
 
@@ -64,6 +66,18 @@ app.MapGet("/api/decisions", (DecisionHistoryService history, int? days, int? li
         default:
             return Results.Ok(entries);
     }
+});
+
+// Daily profit and loss from the logged telemetry samples: format=json (default) or csv.
+app.MapGet("/api/pnl", (TelemetryHistoryService telemetry, int? days, string? format) =>
+{
+    var pnl = telemetry.BuildDailyPnl(days ?? 14);
+    if (string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase))
+    {
+        var csv = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(PnlCalculator.ToCsv(pnl))).ToArray();
+        return Results.File(csv, "text/csv; charset=utf-8", "daily-pnl.csv");
+    }
+    return Results.Ok(pnl);
 });
 
 app.MapGet("/api/prompt", (OptimizerState state) =>

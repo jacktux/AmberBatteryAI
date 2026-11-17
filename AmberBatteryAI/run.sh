@@ -36,6 +36,7 @@ if [ -f "$OPTIONS_FILE" ]; then
   export Optimizer__MinImportStopSoc=$(jq -r '.min_import_stop_soc' "$OPTIONS_FILE")
   export Optimizer__MaxImportStopSoc=$(jq -r '.max_import_stop_soc' "$OPTIONS_FILE")
   export Optimizer__MaxPowerWatts=$(jq -r '.max_power_watts' "$OPTIONS_FILE")
+  export Telemetry__SampleIntervalMinutes=$(jq -r '.telemetry_sample_minutes // 5' "$OPTIONS_FILE")
   export Optimizer__HotWaterKwhPerDegC=$(jq -r '.hot_water_kwh_per_deg_c // 0.12' "$OPTIONS_FILE")
 fi
 

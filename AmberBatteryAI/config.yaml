@@ -42,6 +42,7 @@ options:
   max_import_stop_soc: 100
   max_power_watts: 10000
   hot_water_kwh_per_deg_c: 0.12
+  telemetry_sample_minutes: 5
 schema:
   ai_provider_endpoint: str
   ai_api_key: password
@@ -71,3 +72,4 @@ schema:
   max_import_stop_soc: int(10,100)
   max_power_watts: int(1000,30000)
   hot_water_kwh_per_deg_c: float?
+  telemetry_sample_minutes: int(0,60)?
