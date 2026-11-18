@@ -25,6 +25,10 @@ public static class ExportPricePlanner
     public const double SellNowMarginDollars = 0.015;
     public const double SpikeDollars = 0.50;
     public const double HoldMarginDollars = 0.005;
+    /// <summary>The later window must beat the live price by more than this to justify holding.</summary>
+    public const double LiveHoldMarginDollars = 0.005;
+    /// <summary>Above this live feed-in price the stop SOC drops to the hard floor.</summary>
+    public const double ExtremeSpikeDollars = 1.00;
     public const double SmoothingHours = 0.5;
     public const double PlateauFraction = 0.90;
 
@@ -90,9 +94,11 @@ public static class ExportPricePlanner
     /// <summary>
     /// Compares the current feed-in price with the best later window. Both sides use 30-minute averages, so a short
     /// blip counts for little. Energy already stored is discharged once either way, so waiting carries no efficiency
-    /// or degradation penalty. Returns SELL NOW when the live price is a spike, the current price beats the later
+    /// or degradation penalty. Returns SELL NOW when the live price is a spike or is within half a cent of (or above) the discounted later price, the current price beats the later
     /// window by <see cref="SellNowMarginDollars"/>, the window has started or is about to, or it cannot carry the surplus.
     /// </summary>
+    public const string LiveMatchesLaterReason = "the live price is at least the later window price";
+
     public static LookAhead CompareWithLater(IReadOnlyList<Slot> slots, DateTimeOffset now, double exportPowerKw, double? livePrice = null, double surplusKwh = 0)
     {
         var series = new List<Slot>();
@@ -130,6 +136,7 @@ public static class ExportPricePlanner
 
         string reason;
         if (rawNow >= SpikeDollars) reason = "live price is a spike";
+        else if (rawNow > 0 && bestDiscounted <= rawNow + LiveHoldMarginDollars) reason = LiveMatchesLaterReason;
         else if (nowPrice >= bestRaw + SellNowMarginDollars) reason = "now beats the later window by more than the margin";
         else if (smooth[best].Time <= now.AddHours(SmoothingHours)) reason = "the best window has started or is about to";
         else if (surplusKwh > 0 && capacity < surplusKwh) reason = "the later window cannot carry the surplus";
@@ -150,7 +157,12 @@ public static class ExportPricePlanner
     /// </summary>
     public static double ApplyLookAhead(double threshold, LookAhead look, double? livePrice, double forecastMaxPrice, double exportPriceHysteresis = 0)
     {
-        if (!look.Hold) return threshold;
+        if (!look.Hold)
+        {
+            // The 30-minute average can hide a live price that already matches the later window, so let it start now.
+            if (look.Reason == LiveMatchesLaterReason && livePrice is double spot) return Math.Round(Math.Min(threshold, spot), 3);
+            return threshold;
+        }
 
         // The automation starts at feed-in >= price but only stops below price - hysteresis. Staying above live + hysteresis
         // therefore both prevents a start and ends an export already in progress.

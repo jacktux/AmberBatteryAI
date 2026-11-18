@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.6
+
+### Changed
+- The look-ahead now compares the live feed-in price (not the 30-minute average) with the best later window. It only says HOLD when the discounted later price beats the live price by more than half a cent. Before, a live price above the later forecast could still be held because the 30-minute average included the dip after a short spike, and the HOLD threshold (live + hysteresis + margin) moved up with every live rise, so the export never started. When the live price already matches or beats the later window the result is SELL NOW and the export price is capped at the live price so the export starts. Short spikes can now start an export; the export automation's price hysteresis still stops it when the price falls away.
+- Feed-in above $1.00/kWh now sells down to the hard floor: `export_price` is the computed price capped at the live price and `export_stop_soc` is 22% (hard floor + 2), with the 10000 W limit as before. Before, the model's own price and stop SOC were used, and the prompt only allowed aggressive export above $2.00/kWh. The default prompt now says $1.00. Custom prompts that mention $2.00 should be changed to $1.00 (wording only; the system sets the values).
+- Between $0.50 and $1.00 the look-ahead already says SELL NOW (unchanged).
 ## 1.6.5
 
 ### Changed

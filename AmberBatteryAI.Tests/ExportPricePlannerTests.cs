@@ -26,27 +26,35 @@ public class ExportPricePlannerTests
     }
 
     [Fact]
-    public void FiveMinuteBlipNowStillHoldsForTheEveningPeak()
+    public void LiveAboveTheEveningPeakSellsNow()
     {
         var look = ExportPricePlanner.CompareWithLater(EveningForecast(), Now, 5.0, livePrice: 0.134, surplusKwh: 5);
 
-        Assert.True(look.Hold, look.Reason);
-        Assert.Equal(At(19, 30), look.LaterTime);
+        Assert.False(look.Hold, look.Reason);
+        Assert.Equal(ExportPricePlanner.LiveMatchesLaterReason, look.Reason);
         Assert.Equal(0.123, look.LaterPrice);
-        Assert.InRange(look.NowPrice, 0.120, 0.125);
 
-        double price = ExportPricePlanner.ApplyLookAhead(0.110, look, 0.134, 0.134);
-        Assert.True(price > 0.134, $"HOLD price {price} must stay above the live blip");
+        double price = ExportPricePlanner.ApplyLookAhead(0.150, look, 0.134, 0.134);
+        Assert.Equal(0.134, price);
+        Assert.Equal(0.110, ExportPricePlanner.ApplyLookAhead(0.110, look, 0.134, 0.134));
     }
 
-    [Fact]
-    public void LargerBlipNowDoesNotFlipHoldToSellNow()
+    [Theory]
+    [InlineData(0.20, false)]
+    [InlineData(0.119, false)]
+    [InlineData(0.117, true)]
+    [InlineData(0.08, true)]
+    public void HoldsOnlyWhenTheLaterWindowBeatsTheLivePriceByTheMargin(double live, bool expectedHold)
     {
-        var look = ExportPricePlanner.CompareWithLater(EveningForecast(), Now, 5.0, livePrice: 0.20, surplusKwh: 5);
+        var look = ExportPricePlanner.CompareWithLater(EveningForecast(), Now, 5.0, livePrice: live, surplusKwh: 5);
 
-        Assert.True(look.Hold, look.Reason);
+        Assert.Equal(expectedHold, look.Hold);
+        if (expectedHold)
+        {
+            double price = ExportPricePlanner.ApplyLookAhead(0.110, look, live, 0.134);
+            Assert.True(price > live, $"HOLD price {price} must stay above the live price");
+        }
     }
-
     [Fact]
     public void SingleLaterFiveMinuteSlotCannotBeTheBestWindow()
     {
@@ -109,9 +117,9 @@ public class ExportPricePlannerTests
     {
         var forecast = EveningForecast();
 
-        Assert.True(ExportPricePlanner.CompareWithLater(forecast, Now, 5.0, livePrice: 0.12, surplusKwh: 5).Hold);
+        Assert.True(ExportPricePlanner.CompareWithLater(forecast, Now, 5.0, livePrice: 0.11, surplusKwh: 5).Hold);
 
-        var look = ExportPricePlanner.CompareWithLater(forecast, Now, 5.0, livePrice: 0.12, surplusKwh: 20);
+        var look = ExportPricePlanner.CompareWithLater(forecast, Now, 5.0, livePrice: 0.11, surplusKwh: 20);
         Assert.False(look.Hold);
         Assert.Contains("cannot carry", look.Reason);
     }
@@ -138,10 +146,10 @@ public class ExportPricePlannerTests
     [Fact]
     public void HoldPriceIsAtLeastLivePricePlusHalfACent()
     {
-        var look = ExportPricePlanner.CompareWithLater(EveningForecast(), Now, 5.0, livePrice: 0.12, surplusKwh: 5);
+        var look = ExportPricePlanner.CompareWithLater(EveningForecast(), Now, 5.0, livePrice: 0.11, surplusKwh: 5);
         Assert.True(look.Hold, look.Reason);
 
-        Assert.True(ExportPricePlanner.ApplyLookAhead(0.05, look, 0.12, 0.30) >= 0.125);
+        Assert.True(ExportPricePlanner.ApplyLookAhead(0.05, look, 0.11, 0.30) >= 0.115);
     }
 
     [Theory]

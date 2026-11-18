@@ -400,12 +400,16 @@ public class BatteryOptimizerWorker(
         }
 
         bool feedInSpike = double.TryParse(currentFeedInState, NumberStyles.Float, CultureInfo.InvariantCulture, out double currentFeedIn)
-            && currentFeedIn > 1.00;
+            && currentFeedIn > ExportPricePlanner.ExtremeSpikeDollars;
 
         if (feedInSpike)
         {
-            decision = decision with { ExportStopSoc = Math.Max(20.0, decision.ExportStopSoc) };
-            overrides.Add($"Feed-in spike (${F(currentFeedIn)}/kWh): computed export price and stop SOC not applied.");
+            // Sell into the spike down to the hard floor; the price stays at or below live so the export starts.
+            double spikePrice = double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double spikeSuggested)
+                ? Math.Round(Math.Min(spikeSuggested, currentFeedIn), 3)
+                : Math.Round(currentFeedIn, 3);
+            decision = decision with { ExportPrice = spikePrice, ExportStopSoc = SocPlanner.HardFloorPercent + 2 };
+            overrides.Add($"Feed-in spike (${F(currentFeedIn)}/kWh): export_price {F(spikePrice)}, export_stop_soc {F(decision.ExportStopSoc)} (hard floor + 2); the floor is not applied.");
         }
         else if (floorParsed && double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double suggestedPrice))
         {
@@ -1171,12 +1175,12 @@ public class BatteryOptimizerWorker(
 
                 The requirement is that SOC never falls below ~{{conserveSoc}}% before solar takes over next morning, about 07:30-08:00 (hard floor 20%). floor_kWh is the system's calculation of the minimum energy to hold now, from forecast solar, expected load and overnight needs. Do not use a fixed SOC at 18:00.
 
-                - Only export energy above floor_kWh. Keep the rest in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
+                - Only export energy above floor_kWh. Keep the rest in SELF CONSUME unless an extreme price spike (>$1.00/kWh) occurs.
                 - Look ahead: best_feed_in_window includes a look-ahead comparing the current feed-in price with the best later price (discounted for forecast distance; stored energy has the same loss whether sold now or later). If it says HOLD, do not sell now; keep the energy for the later window (suggested_export_price is already set above the current price). If it says SELL NOW, sell now.
                 - Between 16:30 and 21:30: Identify the highest-value realistic 1-2 hour export window. Any battery capacity above floor_kWh (for example, if solar charged the battery to 85-100%) is excess and should be exported during the evening peak at a good feed-in price.
                 - Set export_price just below the highest realistic feed-in price that is likely to occur.
                 - Do not discharge too early at a low price when a higher price is forecast soon.
-                - If an extreme feed-in price greater than $2.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve (20%).
+                - If an extreme feed-in price greater than $1.00/kWh is occurring now, allow aggressive export down to the configured minimum reserve (20%); the system sets the stop SOC to 22% in that case.
                 - Do not export energy that will need to be repurchased later at a higher price.
 
                 6. OVERNIGHT AND HOUSEHOLD-LOAD PROTECTION
