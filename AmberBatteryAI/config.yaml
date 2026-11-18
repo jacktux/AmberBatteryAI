@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.6.4"
+version: "1.6.5"
 slug: amber_battery_ai
 init: false
 arch:
@@ -43,6 +43,8 @@ options:
   max_power_watts: 10000
   hot_water_kwh_per_deg_c: 0.12
   solar_confidence: 0.6
+  solar_forecast_tomorrow_entity: "sensor.solcast_pv_forecast_forecast_tomorrow"
+  morning_solar_start_hour: 7.5
   telemetry_sample_minutes: 5
 schema:
   ai_provider_endpoint: str
@@ -74,4 +76,6 @@ schema:
   max_power_watts: int(1000,30000)
   hot_water_kwh_per_deg_c: float?
   solar_confidence: float(0.1,1)?
+  solar_forecast_tomorrow_entity: str?
+  morning_solar_start_hour: float(6,10)?
   telemetry_sample_minutes: int(0,60)?

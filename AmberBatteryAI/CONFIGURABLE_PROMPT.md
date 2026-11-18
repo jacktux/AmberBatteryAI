@@ -139,7 +139,7 @@ The AI must always return valid JSON with these exact properties:
 
 The system appends a "[System] Applied: ..." line to the reasoning shown on the dashboard saying whether an export is actually happening (feed-in versus export_price, SOC versus export_start_soc). Tell the AI that discharging for house load is automatic in SELF CONSUME, and that during HOLD it must not say it is discharging or exporting now.
 
-`conserve_soc_at_6am` is the SOC to hold at 06:00 next day, read from `input_number.battery_conserve_at_6am` (default 30). Use `{{conserveSocAt6am}}` instead of writing a fixed percentage.
+`conserve_soc_at_6am` is the lowest SOC the battery should reach before solar takes over next morning (from the first step after 06:00 where haircut solar covers the house load, found from the Solcast tomorrow forecast; 07:30 if that forecast is unavailable), read from `input_number.battery_conserve_at_6am` (default 30). Use `{{conserveSocAt6am}}` instead of writing a fixed percentage.
 
 ### Example Custom Prompt
 

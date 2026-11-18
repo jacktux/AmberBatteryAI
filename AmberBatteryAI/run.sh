@@ -39,6 +39,8 @@ if [ -f "$OPTIONS_FILE" ]; then
   export Telemetry__SampleIntervalMinutes=$(jq -r '.telemetry_sample_minutes // 5' "$OPTIONS_FILE")
   export Optimizer__HotWaterKwhPerDegC=$(jq -r '.hot_water_kwh_per_deg_c // 0.12' "$OPTIONS_FILE")
   export Optimizer__SolarConfidence=$(jq -r '.solar_confidence // 0.6' "$OPTIONS_FILE")
+  export HomeAssistant__SolarForecastTomorrowEntity=$(jq -r '.solar_forecast_tomorrow_entity // "sensor.solcast_pv_forecast_forecast_tomorrow"' "$OPTIONS_FILE")
+  export Optimizer__MorningSolarStartHour=$(jq -r '.morning_solar_start_hour // 7.5' "$OPTIONS_FILE")
 fi
 
 export ASPNETCORE_URLS="http://0.0.0.0:8099"

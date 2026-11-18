@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.5
+
+### Changed
+- The morning target is now the lowest SOC the battery reaches, not the SOC at exactly 06:00. The floor calculation used to stop at 06:00, but the battery keeps supplying the house until solar covers the load (about 1.1 kWh, roughly 3 points of SOC, on a typical morning). With a 25% target the battery dipped to 22%. The hourly energy balance now runs to the first 15-minute step after 06:00 where haircut solar (x 0.9 x `solar_confidence`) meets the daytime load, so a 25% target stays near 25%. Expect `floor_kWh` and the stop SOC about 1 kWh (2-3 points) higher overnight, so about the same amount less is exported on an average night.
+- The solar-takeover time comes from tomorrow's Solcast forecast (`sensor.solcast_pv_forecast_forecast_tomorrow`, option `solar_forecast_tomorrow_entity`). If that forecast is unavailable the default `morning_solar_start_hour` (7.5, i.e. 07:30, range 6-10) is used. If solar never covers the load in the first four hours after 06:00 (a dark forecast), the balance runs to 10:00, which raises the floor.
+- The prompt and `CONFIGURABLE_PROMPT.md` describe the target as the lowest SOC before solar takes over. Custom prompts that say "at 06:00" still work; the numbers come from the code.
+
+### Notes
+- The hot water Full check still measures the 18:00 requirement without the pre-solar dip, so it can be up to about 1 kWh more generous than the floor. Heating energy is still reserved in the floor, so exports are not affected.
+- To keep the old behaviour, set `morning_solar_start_hour` to 6 and `solar_forecast_tomorrow_entity` to an entity that does not exist.
+
 ## Unreleased
 
 ### Added
