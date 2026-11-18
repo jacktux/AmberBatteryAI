@@ -38,6 +38,7 @@ if [ -f "$OPTIONS_FILE" ]; then
   export Optimizer__MaxPowerWatts=$(jq -r '.max_power_watts' "$OPTIONS_FILE")
   export Telemetry__SampleIntervalMinutes=$(jq -r '.telemetry_sample_minutes // 5' "$OPTIONS_FILE")
   export Optimizer__HotWaterKwhPerDegC=$(jq -r '.hot_water_kwh_per_deg_c // 0.12' "$OPTIONS_FILE")
+  export Optimizer__SolarConfidence=$(jq -r '.solar_confidence // 0.6' "$OPTIONS_FILE")
 fi
 
 export ASPNETCORE_URLS="http://0.0.0.0:8099"

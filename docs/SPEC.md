@@ -55,7 +55,7 @@ The prompt has these sections: OBJECTIVE (conserve_soc_at_6am SOC at 06:00, sell
 
 ## Dashboard (dark theme, one page, works behind HA ingress with relative URLs)
 
-Next-run countdown, grid status, export and import threshold cards (with "Starts above X%" and "Starts below Y%"), AI reasoning, last prompt with a Copy button, telemetry snapshot, decision history card (last 10 runs plus CSV and JSONL download buttons), a custom prompt editor with a placeholder help list, and a Run Now button (POST /api/run-now). Add-on options in config.yaml for entities, limits, interval, model, endpoint, API key (password type), hot_water_kwh_per_deg_c (default 0.12), and the hysteresis entities. run.sh maps options to environment variables with jq.
+Next-run countdown, grid status, export and import threshold cards (with "Starts above X%" and "Starts below Y%"), AI reasoning, last prompt with a Copy button, telemetry snapshot, decision history card (last 10 runs plus CSV and JSONL download buttons), a custom prompt editor with a placeholder help list, and a Run Now button (POST /api/run-now). Add-on options in config.yaml for entities, limits, interval, model, endpoint, API key (password type), hot_water_kwh_per_deg_c (default 0.12), solar_confidence (default 0.6), and the hysteresis entities. run.sh maps options to environment variables with jq.
 
 ## Build discipline
 
