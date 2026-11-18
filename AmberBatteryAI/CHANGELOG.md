@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- The prompt (section 7 and CONFIGURABLE_PROMPT.md) now tells the model that the system sets import_stop_soc to the current SOC unless the mode is CHARGE with the import price at or below the threshold, so it should not claim a high import_stop_soc to capture solar. The override layer now enforces this for every non-CHARGE mode and logs it.
+
 ### Added
 - More data per decision in the decision log (JSONL, plus flat CSV columns): `telemetry` (solar power, grid import/export power, the current 5-minute import and feed-in prices, SOC, battery and home power), `active_setpoints` (the export/import helpers and the hot water mode read back from Home Assistant after the write, so the log shows what is really active, not only what was requested) and `feed_in_forecast` (the feed-in forecast points with their lead time). Any value is null when its entity is missing.
 - Telemetry sampler: every 5 minutes (`telemetry_sample_minutes`, 0 turns it off) the add-on records the same telemetry to `samples-YYYY-MM-DD.jsonl`. It only reads; nothing is written to Home Assistant. Samples are kept for `DecisionLogRetentionDays`.

@@ -134,6 +134,8 @@ The AI must always return valid JSON with these exact properties:
 }
 ```
 
+`import_stop_soc` is overridden by the system: unless `mode` is CHARGE and the import price now is at or below the import threshold, it is set to the current SOC and the battery never charges from the grid. Solar charging needs no `import_stop_soc`. Tell the AI to output `import_stop_soc` = current SOC for any non-CHARGE mode and to describe in its reasoning only what is actually applied (no "100% to capture solar").
+
 ### Example Custom Prompt
 
 ```

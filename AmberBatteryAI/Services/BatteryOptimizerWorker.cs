@@ -440,6 +440,16 @@ public class BatteryOptimizerWorker(
             safeImportStopSoc = Math.Round(Math.Clamp(socNow, minImpSoc, maxImpSoc), 0);
         }
 
+        // Without grid charging the stop SOC is just the current SOC: solar charging needs no import_stop_soc, and a
+        // higher value could only start grid charging when the price happens to fall below the import threshold.
+        if (!string.Equals(decision.Mode?.Trim(), "CHARGE", StringComparison.OrdinalIgnoreCase))
+        {
+            double idleStop = Math.Round(Math.Clamp(socNow, minImpSoc, maxImpSoc), 0);
+            if (Math.Abs(idleStop - safeImportStopSoc) > 0.5)
+                overrides.Add($"import_stop_soc {F(safeImportStopSoc)} -> {F(idleStop)} (mode is not CHARGE, so no grid charging)");
+            safeImportStopSoc = idleStop;
+        }
+
         // The import automation only starts when SOC is below the stop SOC minus its hysteresis, so a charge
         // whose target sits at or just above the current SOC would never begin.
         if (string.Equals(decision.Mode?.Trim(), "CHARGE", StringComparison.OrdinalIgnoreCase)
@@ -1097,6 +1107,7 @@ public class BatteryOptimizerWorker(
                 - If the battery is already charging or discharging, consider whether changing direction would create unnecessary losses.
                 - The export automation only starts when SOC is above export_start_soc, so choose DISCHARGE only when the current SOC is above it.
                 - The import automation only starts charging when SOC is below import_stop_soc minus a margin. To charge, import_stop_soc must be at least import_min_stop_soc.
+                - The system overrides import_stop_soc: unless mode is CHARGE and the import price now is at or below the import threshold, it sets import_stop_soc to the current SOC and never charges from the grid. Solar charging needs no import_stop_soc. For any non-CHARGE mode output import_stop_soc = current SOC, do not claim a higher value (such as 100% to capture solar), and describe in the reasoning only what is actually applied.
 
                 8. HOT WATER
 
