@@ -77,6 +77,7 @@ public record DayProjection
     [JsonPropertyName("realised")] public RealisedTotals Realised { get; init; } = new();
     [JsonPropertyName("remainder")] public ProjectionTotals Remainder { get; init; } = new();
     [JsonPropertyName("day_total")] public ProjectionTotals DayTotal { get; init; } = new();
+    [JsonPropertyName("hourly")] public List<HourlyProjection> Hourly { get; init; } = new();
     [JsonPropertyName("range")] public ProjectionRange Range { get; init; } = new();
     [JsonPropertyName("assumptions")] public ProjectionAssumptions Assumptions { get; init; } = new();
 }
@@ -154,7 +155,19 @@ public record ProjectionInput
 
 public enum ProjectionScenario { Base, Low, High }
 
-public record SimulationResult(ProjectionTotals Totals, double EndSocPercent, double LoadKwh, double SolarKwh);
+public record SimulationResult(ProjectionTotals Totals, double EndSocPercent, double LoadKwh, double SolarKwh, double[] HourImportKwh, double[] HourExportKwh);
+
+/// <summary>Projected grid flow for one clock hour: expected (base case) with the low/high of the solar and price scenarios.</summary>
+public record HourlyProjection
+{
+    [JsonPropertyName("hour")] public int Hour { get; init; }
+    [JsonPropertyName("import_kwh")] public double ImportKwh { get; init; }
+    [JsonPropertyName("import_low_kwh")] public double ImportLowKwh { get; init; }
+    [JsonPropertyName("import_high_kwh")] public double ImportHighKwh { get; init; }
+    [JsonPropertyName("export_kwh")] public double ExportKwh { get; init; }
+    [JsonPropertyName("export_low_kwh")] public double ExportLowKwh { get; init; }
+    [JsonPropertyName("export_high_kwh")] public double ExportHighKwh { get; init; }
+}
 
 /// <summary>
 /// Display-only estimate of the rest of today. It steps through the remaining half-hours, simulating the battery:
@@ -224,6 +237,8 @@ public static class DayProjector
         double energy = Math.Clamp(input.StartSocPercent / 100 * capacity, 0, capacity);
 
         double exportKwh = 0, exportRevenue = 0, importKwh = 0, importCost = 0, avoidedKwh = 0, avoidedValue = 0, loadTotal = 0, solarTotal = 0;
+        var hourImport = new double[24];
+        var hourExport = new double[24];
         double nowImport = PriceFor(input.ImportPrices, input.Now, input.Now.AddMinutes(1)) ?? 0;
         double nowFeedIn = PriceFor(input.FeedInPrices, input.Now, input.Now.AddMinutes(1)) ?? 0;
 
@@ -244,6 +259,7 @@ public static class DayProjector
             double surplus = solar - direct;
             double shortfall = load - direct;
             double batteryOut = 0;
+            double importBefore = importKwh, exportBefore = exportKwh;
             avoidedKwh += direct;
             avoidedValue += direct * importPrice;
 
@@ -298,13 +314,37 @@ public static class DayProjector
                     exportRevenue += sold * feedIn;
                 }
             }
+
+            hourImport[start.Hour] += importKwh - importBefore;
+            hourExport[start.Hour] += exportKwh - exportBefore;
         }
 
         return new SimulationResult(
             ProjectionTotals.From(exportKwh, exportRevenue, importKwh, importCost, avoidedKwh, avoidedValue),
             Math.Round(energy / capacity * 100, 1),
             Math.Round(loadTotal, 2),
-            Math.Round(solarTotal, 2));
+            Math.Round(solarTotal, 2),
+            hourImport,
+            hourExport);
+    }
+
+    private static List<HourlyProjection> Hourly(SimulationResult low, SimulationResult baseCase, SimulationResult high)
+    {
+        double R(double v) => Math.Round(v, 2);
+        var list = new List<HourlyProjection>();
+        for (int h = 0; h < 24; h++)
+        {
+            double[] imports = { low.HourImportKwh[h], baseCase.HourImportKwh[h], high.HourImportKwh[h] };
+            double[] exports = { low.HourExportKwh[h], baseCase.HourExportKwh[h], high.HourExportKwh[h] };
+            if (imports.Max() <= 0 && exports.Max() <= 0) continue;
+            list.Add(new HourlyProjection
+            {
+                Hour = h,
+                ImportKwh = R(imports[1]), ImportLowKwh = R(imports.Min()), ImportHighKwh = R(imports.Max()),
+                ExportKwh = R(exports[1]), ExportLowKwh = R(exports.Min()), ExportHighKwh = R(exports.Max())
+            });
+        }
+        return list;
     }
 
     public static DayProjection Build(ProjectionInput input, RealisedTotals realised, DateTimeOffset? priceForecastUntil, int loadDaysUsed, bool loadFallback, IEnumerable<string>? notes = null)
@@ -325,6 +365,7 @@ public static class DayProjector
             Realised = realised,
             Remainder = baseCase.Totals,
             DayTotal = dayTotal,
+            Hourly = Hourly(low, baseCase, high),
             Range = new ProjectionRange
             {
                 LowNetCash = totals.Min(t => t.NetCash),

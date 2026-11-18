@@ -16,6 +16,9 @@
                     </tbody>
                 </table>
             </div>
+            <div class="label" style="margin-top: 12px;">Projected grid flow per hour (estimate)</div>
+            <div class="sub">Solid bars are the expected kWh for each hour (red = imported, green = exported); the lighter extension shows the likely high end across the low/base/high Solcast (P10/P90) and feed-in bias scenarios. It does not include day-to-day variation in house load.</div>
+            <div id="projChart" style="overflow-x: auto; margin-top: 6px;"></div>
             <div class="sub" id="projSummary" style="margin-top: 8px;"></div>
             <div class="sub" id="projAssumptions" style="margin-top: 4px;"></div>
         </div>
@@ -57,6 +60,41 @@
 
 @section Scripts {
     <script>
+        function drawHourly(hours) {
+            const box = document.getElementById('projChart');
+            if (!hours.length) { box.textContent = 'No grid import or export is projected for the rest of today.'; return; }
+            const ns = 'http://www.w3.org/2000/svg';
+            const max = Math.max(0.5, ...hours.flatMap(h => [h.import_high_kwh, h.export_high_kwh]));
+            const slot = 44, left = 34, top = 8, plot = 140, width = left + hours.length * slot + 6, height = top + plot + 22;
+            const svg = document.createElementNS(ns, 'svg');
+            svg.setAttribute('width', width); svg.setAttribute('height', height);
+            const add = (name, attrs, text) => {
+                const el = document.createElementNS(ns, name);
+                for (const k in attrs) el.setAttribute(k, attrs[k]);
+                if (text !== undefined) el.textContent = text;
+                svg.appendChild(el); return el;
+            };
+            const y = v => top + plot - v / max * plot;
+            add('line', { x1: left, x2: width, y1: top + plot, y2: top + plot, stroke: '#666' });
+            add('text', { x: left - 4, y: top + 8, 'text-anchor': 'end', 'font-size': 10, fill: '#999' }, max.toFixed(1));
+            add('text', { x: left - 4, y: top + plot, 'text-anchor': 'end', 'font-size': 10, fill: '#999' }, '0');
+            hours.forEach((h, i) => {
+                const x = left + i * slot + 4;
+                const bar = (dx, value, high, color, light) => {
+                    add('rect', { x: x + dx, y: y(high), width: 16, height: Math.max(0, y(value) - y(high)), fill: light });
+                    const r = add('rect', { x: x + dx, y: y(value), width: 16, height: Math.max(0, top + plot - y(value)), fill: color });
+                    return r;
+                };
+                const tip = (el, text) => el.appendChild(Object.assign(document.createElementNS(ns, 'title'), { textContent: text }));
+                tip(bar(0, h.import_kwh, h.import_high_kwh, '#e05555', '#e0555566'),
+                    'Import ' + h.import_kwh + ' kWh (range ' + h.import_low_kwh + ' to ' + h.import_high_kwh + ')');
+                tip(bar(18, h.export_kwh, h.export_high_kwh, '#3fb950', '#3fb95066'),
+                    'Export ' + h.export_kwh + ' kWh (range ' + h.export_low_kwh + ' to ' + h.export_high_kwh + ')');
+                add('text', { x: x + 17, y: height - 6, 'text-anchor': 'middle', 'font-size': 10, fill: '#999' }, String(h.hour).padStart(2, '0') + ':00');
+            });
+            box.replaceChildren(svg);
+        }
+
         async function loadProjection() {
             const body = document.getElementById('projRows');
             try {
@@ -83,6 +121,7 @@
                     if (label === 'Projected day total') row.style.fontWeight = '600';
                 }
 
+                drawHourly(p.hourly || []);
                 const r = p.range, a = p.assumptions;
                 document.getElementById('projSummary').textContent =
                     'Likely range for the day: ' + money(r.low_net_cash) + ' to ' + money(r.high_net_cash) +

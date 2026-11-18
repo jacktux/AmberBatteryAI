@@ -180,4 +180,21 @@ public class DayProjectionTests
         Assert.True(report.Range.LowNetInclAvoided <= report.DayTotal.NetInclAvoided);
         Assert.Contains("fallback", report.Assumptions.LoadSource);
     }
+
+    [Fact]
+    public void HourlyBreakdownSumsToTotalsAndCarriesTheScenarioRange()
+    {
+        var input = Input(soc: 30, load: 1, importPrice: 0.30) with { Solar = Sun(12, 14, 2, 0, 4) };
+        var report = DayProjector.Build(input, new RealisedTotals(), null, 7, false);
+
+        Assert.Equal(report.Remainder.ImportKwh, report.Hourly.Sum(h => h.ImportKwh), 1);
+        Assert.Equal(report.Remainder.ExportKwh, report.Hourly.Sum(h => h.ExportKwh), 1);
+        Assert.All(report.Hourly, h =>
+        {
+            Assert.InRange(h.Hour, 12, 23);
+            Assert.True(h.ImportLowKwh <= h.ImportKwh && h.ImportKwh <= h.ImportHighKwh);
+            Assert.True(h.ExportLowKwh <= h.ExportKwh && h.ExportKwh <= h.ExportHighKwh);
+        });
+        Assert.Contains(report.Hourly, h => h.ImportHighKwh > h.ImportLowKwh);
+    }
 }
