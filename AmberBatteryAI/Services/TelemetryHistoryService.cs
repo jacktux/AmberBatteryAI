@@ -111,6 +111,22 @@ public class TelemetryHistoryService
         return (errors, ForecastErrorCalculator.RollingBias(errors, DateTimeOffset.Now, days));
     }
 
+    /// <summary>The last forecast-bias report written by <see cref="WriteReports"/>, or null if there is none yet.</summary>
+    public ForecastBiasReport? ReadBias()
+    {
+        try
+        {
+            string path = Path.Combine(_directory, "forecast-bias.json");
+            lock (_lock)
+                return File.Exists(path) ? JsonSerializer.Deserialize<ForecastBiasReport>(File.ReadAllText(path, Utf8NoBom)) : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read forecast-bias.json.");
+            return null;
+        }
+    }
+
     /// <summary>Writes the reports next to the decision log. Never throws.</summary>
     public void WriteReports(IReadOnlyList<DailyPnl> pnl, IReadOnlyList<ForecastError> errors, ForecastBiasReport bias)
     {

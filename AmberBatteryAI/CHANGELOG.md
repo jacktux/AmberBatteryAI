@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.7.0 (2026-11-18)
+
+### Added
+- Today's projection on the Performance page: an estimate of today's cash (AUD) made of what has been realised so far (daily P&L) plus a simulation of the rest of the day, rebuilt on every optimizer run that applies a decision. It shows export revenue, import cost, avoided import and net cash for the realised part, the remainder and the day total, a likely low/high range, the SOC now and at midnight, and the assumptions used. It is clearly labelled as an estimate and is display only: it changes no setting and is not sent to the model.
+- The simulation steps through the remaining half-hour slots to midnight from the current SOC (40 kWh, about 10% round-trip loss, 20% hard floor and the floor_kWh target). Solar serves the house first, then the battery, then export; a shortfall comes from the battery, then the grid. The planned export (surplus above floor_kWh at or above the applied export price, within the export power limit) and CHARGE-mode grid charging are included. Solar is treated as curtailed when feed-in is zero or negative.
+- Inputs: the Amber import and feed-in forecasts, Solcast (P50 for the base case, P10/P90 for the range) and the average house load of the last 7 complete days by half-hour, built from the telemetry samples. Days with under 12 hours of samples are ignored; with fewer than 7 days the available days are averaged, and with none the average load setting is used. The days used are shown. The range also applies the feed-in forecast bias from `forecast-bias.json` when it exists.
+- `GET /api/projection` (latest projection, 204 until the first run) and `GET /api/projection/log?days=` (every run's projection). Each run is appended to `projections-YYYY-MM-DD.jsonl` next to the decision log (same retention) and the latest is kept in `day-projection.json`, so projections can be compared with actuals later.
+- Options `Projection:Enabled` (default true) and `Projection:LoadDays` (default 7).
+
+### Notes
+- No prompt or trading behaviour change; saved custom prompts need no edits.
+- Energy left in the battery at midnight and battery degradation are not valued. Samples from before the sampler started make the realised part partial.
+
 ## 1.6.6
 
 ### Changed

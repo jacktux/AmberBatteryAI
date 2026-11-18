@@ -72,3 +72,9 @@ Put the pure logic in small static classes (SocPlanner, ExportPricePlanner, HotW
 
 ## Master switch
 input_boolean.amber_battery_ai_optimizer (config HomeAssistant:MasterSwitchEntity). If it is off the optimizer cycle returns before reading telemetry or calling the AI, and writes nothing to Home Assistant; a skipped entry is added to the local decision log only. A missing or unreadable helper is treated as on.
+
+## Day projection (display only)
+- After each applied run, `DayProjectionService` builds an estimate of today's net cash: realised so far (daily P&L) plus a half-hour simulation from now to midnight (`DayProjector` in `Services/DayProjection.cs`, pure and unit-tested). It never changes a setting and is not part of the prompt.
+- Inputs: Amber import/feed-in forecasts, Solcast (P50 base, P10/P90 for the low/high case), and the average house load by half-hour over the last `Projection:LoadDays` (default 7) complete days from the telemetry samples (>= 12 h coverage per day; no history falls back to `Optimizer:AverageLoadKw`). The feed-in bias from `forecast-bias.json` widens the range.
+- Simulation: solar -> house -> battery -> export (curtailed when feed-in <= 0); shortfall -> battery (to the 20% hard floor) -> grid; planned export above floor_kWh + 2% at or above the applied export price within the power limit; CHARGE-mode grid charging up to the import stop SOC; 10% round-trip loss. Leftover energy at midnight is not valued.
+- Output: `GET /api/projection`, `GET /api/projection/log?days=`, `day-projection.json`, and `projections-YYYY-MM-DD.jsonl` (same retention as the decision log). Shown as an estimate card on the Performance page, refreshed on every run. `Projection:Enabled=false` turns it off.

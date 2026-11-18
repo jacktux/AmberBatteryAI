@@ -64,7 +64,7 @@ public static class SocPlanner
         return Math.Round(Math.Min(Math.Max(floor, minKwh), capacityKwh), 2);
     }
 
-    public record SolarSlot(DateTime Start, double Kw);
+    public record SolarSlot(DateTime Start, double Kw, double? Kw10 = null, double? Kw90 = null);
 
     public const double DefaultMorningSolarStartHour = 7.5;
     public const double MaxMorningSolarSearchHours = 4;

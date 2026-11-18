@@ -10,6 +10,8 @@ builder.Services.AddSingleton<PromptStorageService>();
 builder.Services.AddSingleton<DecisionHistoryService>();
 builder.Services.AddSingleton<TelemetryReader>();
 builder.Services.AddSingleton<TelemetryHistoryService>();
+builder.Services.AddSingleton<ProjectionStore>();
+builder.Services.AddSingleton<DayProjectionService>();
 builder.Services.AddHostedService<TelemetrySampler>();
 builder.Services.AddSingleton<OptimizerState>();
 builder.Services.AddHostedService<BatteryOptimizerWorker>();
@@ -83,6 +85,13 @@ app.MapGet("/api/pnl", (TelemetryHistoryService telemetry, int? days, string? fo
 // Rolling forecast bias (actual minus forecast feed-in price) per lead-time bucket. Recorded only, not used in decisions.
 app.MapGet("/api/forecast-bias", (TelemetryHistoryService telemetry, int? days) =>
     Results.Ok(telemetry.BuildForecastBias(days ?? 14).Bias));
+
+// Estimate of today's cash (realised so far plus a simulation of the rest of the day), rebuilt on every optimizer run.
+// Display only. 204 until the first run has produced one. /api/projection/log lists every run's projection.
+app.MapGet("/api/projection", (ProjectionStore store) =>
+    store.ReadLatest() is { } projection ? Results.Ok(projection) : Results.NoContent());
+
+app.MapGet("/api/projection/log", (ProjectionStore store, int? days) => Results.Ok(store.ReadLog(days ?? 1)));
 
 app.MapGet("/api/prompt", (OptimizerState state) =>
 {

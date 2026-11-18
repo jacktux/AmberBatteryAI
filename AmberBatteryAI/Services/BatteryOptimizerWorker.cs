@@ -12,6 +12,7 @@ public class BatteryOptimizerWorker(
     OptimizerState state,
     DecisionHistoryService history,
     TelemetryReader telemetry,
+    DayProjectionService projection,
     ILogger<BatteryOptimizerWorker> logger) : BackgroundService
 {
     private const string DefaultAiModel = "gemini-3.5-flash-lite";
@@ -582,6 +583,33 @@ public class BatteryOptimizerWorker(
         // Read back what Home Assistant actually holds now (helpers can clamp or reject a written value).
         _pending = entry = entry with { ActiveSetpoints = await telemetry.ReadSetpointsAsync(haClient, ct) };
 
+        // Display-only estimate of today's cash; it never changes a setting and a failure cannot affect the run.
+        // Built before the run is reported as done so the page refreshes with the new estimate.
+        if (floorParsed)
+        {
+            await projection.UpdateAsync(haClient, new ProjectionContext
+            {
+                CapacityKwh = batteryCapacityKwh,
+                SocPercent = socNow,
+                FloorKwh = floorKwhValue,
+                AvgLoadKw = avgLoadKw,
+                DaytimeLoadKw = DaytimeLoadKw,
+                HeatingReserveKwh = hotWaterFull.ReserveKwh,
+                ConservePercent = conservePercent,
+                SolarConfidence = solarConfidence,
+                MorningSolarStartHour = morningSolarStartHour,
+                SolarSlots = solarSlots,
+                ExportPrice = safeExportPrice,
+                ExportPowerKw = safeExportLimit / 1000.0,
+                GridCharging = string.Equals(decision.Mode?.Trim(), "CHARGE", StringComparison.OrdinalIgnoreCase),
+                ImportPrice = safeImportPrice,
+                ImportStopSoc = safeImportStopSoc,
+                ImportPowerKw = safeImportLimit / 1000.0,
+                GeneralEntity = generalEntity,
+                FeedInEntity = feedInEntity
+            }, ct);
+        }
+
         string telemetrySnapshot = $"SOC: {soc}% ({kwhBudgetSummary}) | Battery: {batteryPower} | Home: {homePower} | Solar: {solarSummary}";
         state.RecordSuccess(
             new AppliedDecision(
@@ -974,7 +1002,10 @@ public class BatteryOptimizerWorker(
                     if (item.TryGetProperty("period_start", out var ps) &&
                         DateTimeOffset.TryParse(ps.GetString(), out var start) &&
                         item.TryGetProperty("pv_estimate", out var pv) && pv.TryGetDouble(out var kw))
-                        slots.Add(new SocPlanner.SolarSlot(start.ToLocalTime().DateTime, Math.Max(kw, 0)));
+                    {
+                        double? Optional(string name) => item.TryGetProperty(name, out var p) && p.TryGetDouble(out var v) ? Math.Max(v, 0) : null;
+                        slots.Add(new SocPlanner.SolarSlot(start.ToLocalTime().DateTime, Math.Max(kw, 0), Optional("pv_estimate10"), Optional("pv_estimate90")));
+                    }
                 }
             }
         }
