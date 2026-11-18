@@ -59,7 +59,8 @@ public class SocPlannerTests
     {
         var now = new DateTime(2026, 11, 17, 20, 0, 0);
         double floor = SocPlanner.HourlyFloorKwh(40, now, Sun(now, 10, 17, 5), 0.75, 1.0, 0, 0.6, 30)!.Value;
-        Assert.Equal(SocPlanner.FloorKwh(40, 0.75, 0, 0, 20, 30), floor, 1);
+        // No morning forecast: the floor runs to the 07:30 fallback, 1.5 h at the 1.0 kW daytime load past 06:00.
+        Assert.Equal(SocPlanner.FloorKwh(40, 0.75, 0, 0, 20, 30) + 1.5, floor, 1);
     }
 
     [Fact]
