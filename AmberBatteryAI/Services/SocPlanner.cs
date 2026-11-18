@@ -64,5 +64,41 @@ public static class SocPlanner
         return Math.Round(Math.Min(Math.Max(floor, minKwh), capacityKwh), 2);
     }
 
+    public record SolarSlot(DateTime Start, double Kw);
+
+    /// <summary>
+    /// Lowest stored energy allowed now so the battery still reaches the morning target at 06:00, from a backward energy
+    /// balance over 15-minute steps: each step's required energy is the next step's requirement minus that step's net
+    /// energy (haircut solar minus house load), kept between the 20% hard floor and capacity. Unlike the lump-sum
+    /// FloorKwh this respects when the solar arrives. Returns null when there is no solar forecast to use.
+    /// </summary>
+    public static double? HourlyFloorKwh(double capacityKwh, DateTime now, IReadOnlyList<SolarSlot> slots, double avgLoadKw, double daytimeLoadKw, double heatingReserveKwh, double solarConfidence, double morningTargetPercent = MorningTargetPercent)
+    {
+        if (slots.Count == 0)
+            return null;
+
+        double minKwh = capacityKwh * HardFloorPercent / 100;
+        DateTime end = now.Date.AddHours(6);
+        if (end <= now)
+            end = end.AddDays(1);
+
+        double load(DateTime t) => t.Hour >= 6 && t.Hour < 18 ? Math.Max(avgLoadKw, daytimeLoadKw) : Math.Max(avgLoadKw, 0);
+        double solar(DateTime t) => slots.Where(x => x.Start <= t && t < x.Start.AddMinutes(30)).Select(x => x.Kw).DefaultIfEmpty(0).First();
+
+        const double stepHours = 0.25;
+        int steps = (int)Math.Ceiling((end - now).TotalHours / stepHours);
+        double required = capacityKwh * ClampMorningTarget(morningTargetPercent) / 100;
+        for (int i = steps - 1; i >= 0; i--)
+        {
+            DateTime start = now.AddHours(i * stepHours);
+            double hours = Math.Min(stepHours, (end - start).TotalHours);
+            DateTime mid = start.AddHours(hours / 2);
+            double net = solar(mid) * 0.9 * solarConfidence - load(mid);
+            required = Math.Clamp(required - net * hours, minKwh, capacityKwh);
+        }
+
+        return Math.Round(Math.Min(required + Math.Max(heatingReserveKwh, 0), capacityKwh), 2);
+    }
+
     public static string N(double value) => value.ToString("0.#", CultureInfo.InvariantCulture);
 }

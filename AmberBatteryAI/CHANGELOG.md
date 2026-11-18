@@ -8,6 +8,7 @@
 - Custom prompts: add `- conserve_soc_at_6am = {{conserveSocAt6am}}` under COMPUTED VALUES and replace any fixed "30% at 06:00" wording with `{{conserveSocAt6am}}%`.
 
 ### Changed
+- floor_kWh (and so export_stop_soc) now comes from an hourly energy balance from now to 06:00 using the Solcast hourly forecast (solar x 0.9 x confidence minus house load per 15-minute step, kept between the 20% hard floor and capacity, ending at the conserve target) instead of one lump sum of solar until 18:00, so solar that arrives late or is too small raises the stop SOC. Falls back to the old calculation if the hourly forecast is unavailable. The solar haircut is now configurable via `Optimizer:SolarConfidence` (default 0.6). No prompt changes needed.
 - The reasoning shown on the dashboard now ends with a "[System] Applied: ..." line stating whether an export is really happening (live feed-in versus the export price, SOC versus the export start SOC), so "discharging now" cannot contradict a held export. The prompt tells the model that house-load discharge is automatic in SELF CONSUME and that during HOLD it must not claim to export now. The logged ai_response is unchanged.
 
 ## 1.6.0
