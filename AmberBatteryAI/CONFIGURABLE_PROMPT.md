@@ -113,6 +113,7 @@ COMPUTED VALUES (calculated by the system; trust these, do not recompute them)
 - import_min_stop_soc = {{importMinStopSoc}}
 - export_price_hysteresis = {{exportPriceHysteresis}}
 - effective_sell_floor = {{effectiveSellFloor}}
+- conserve_soc_at_6am = {{conserveSocAt6am}}
 ```
 
 `best_feed_in_window` ends with the look-ahead result, HOLD or SELL NOW. `export_price_hysteresis` is read from `input_number.export_price_hysteresis` (default 0.02): the export automation starts at feed-in >= export_price but only stops below export_price minus this, so `effective_sell_floor` (suggested price minus hysteresis) is the price selling really continues down to. Tests B and C should use it for energy already being sold. `suggested_export_power_limit` is in watts, includes the current house load (it is a discharge limit, grid export = limit - home load), and; the system enforces it, so the prompt should tell the AI to copy it into `export_power_limit` instead of using a fixed value.
@@ -137,6 +138,8 @@ The AI must always return valid JSON with these exact properties:
 `import_stop_soc` is overridden by the system: unless `mode` is CHARGE and the import price now is at or below the import threshold, it is set to the current SOC and the battery never charges from the grid. Solar charging needs no `import_stop_soc`. Tell the AI to output `import_stop_soc` = current SOC for any non-CHARGE mode and to describe in its reasoning only what is actually applied (no "100% to capture solar").
 
 The system appends a "[System] Applied: ..." line to the reasoning shown on the dashboard saying whether an export is actually happening (feed-in versus export_price, SOC versus export_start_soc). Tell the AI that discharging for house load is automatic in SELF CONSUME, and that during HOLD it must not say it is discharging or exporting now.
+
+`conserve_soc_at_6am` is the SOC to hold at 06:00 next day, read from `input_number.battery_conserve_at_6am` (default 30). Use `{{conserveSocAt6am}}` instead of writing a fixed percentage.
 
 ### Example Custom Prompt
 

@@ -121,6 +121,19 @@ public class BatteryOptimizerWorker(
         return string.IsNullOrWhiteSpace(reasoning) ? note : reasoning.TrimEnd() + "\n\n[System] " + note;
     }
 
+    private async Task<bool> IsMasterSwitchOffAsync(HttpClient client, string entityId, CancellationToken ct)
+    {
+        try
+        {
+            return string.Equals((await GetEntityStateAsync(client, entityId, ct)).Trim(), "off", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not read master switch {Entity}; treating it as on.", entityId);
+            return false;
+        }
+    }
+
     private const double DefaultExportPriceHysteresis = 0.02;
 
     // "1.2 kW" or "850 W" as watts; null when unavailable.
@@ -140,7 +153,8 @@ public class BatteryOptimizerWorker(
         string importPriceState,
         double capacityKwh,
         double remainingSolarKwh,
-        double avgLoadKw)
+        double avgLoadKw,
+        double conservePercent)
     {
         static double? ParseFinite(string text) =>
             double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value : null;
@@ -154,7 +168,7 @@ public class BatteryOptimizerWorker(
             ParseFinite(soc),
             capacityKwh,
             netSolarKwh,
-            SocPlanner.RequiredKwhAt18(capacityKwh, avgLoadKw),
+            SocPlanner.RequiredKwhAt18(capacityKwh, avgLoadKw, conservePercent),
             kwhPerDegC,
             hour,
             ParseFinite(importPriceState));
@@ -166,6 +180,17 @@ public class BatteryOptimizerWorker(
         _pending = entry;
 
         var haClient = CreateHaClient();
+
+        // Master switch: when the helper is off nothing is read, decided or written. A missing helper counts as on.
+        string masterSwitchEntity = config["HomeAssistant:MasterSwitchEntity"] ?? "input_boolean.amber_battery_ai_optimizer";
+        if (await IsMasterSwitchOffAsync(haClient, masterSwitchEntity, ct))
+        {
+            logger.LogInformation("Skipping optimization: {Entity} is off.", masterSwitchEntity);
+            history.Append(entry with { Outcome = DecisionOutcome.Skipped, Note = $"{masterSwitchEntity} is off; optimizer idle, settings left unchanged." });
+            return;
+        }
+
+        double conservePercent = SocPlanner.ClampMorningTarget(await ReadHelperNumberAsync(haClient, config["HomeAssistant:ConserveAt6amEntity"] ?? "input_number.battery_conserve_at_6am", SocPlanner.MorningTargetPercent, ct));
         int forecastHours = config.GetValue("Optimizer:ForecastHours", 12);
 
         string socEntity = config["HomeAssistant:BatterySocEntity"] ?? "sensor.la_electrical_battery_soc";
@@ -259,7 +284,7 @@ public class BatteryOptimizerWorker(
             currentImportState = "unknown";
         }
 
-        var hotWaterFull = AssessFullHotWater(soc, hotWaterTemp, currentImportState, batteryCapacityKwh, remainingSolarKwh, avgLoadKw);
+        var hotWaterFull = AssessFullHotWater(soc, hotWaterTemp, currentImportState, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, conservePercent);
 
         double exportPowerKw = config.GetValue("Optimizer:ExportPowerLimitKw", 5.0);
 
@@ -270,7 +295,7 @@ public class BatteryOptimizerWorker(
         double exportPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportPriceHysteresisEntity"] ?? "input_number.export_price_hysteresis", DefaultExportPriceHysteresis, ct);
         double? homeLoadWatts = telemetrySample.HomePowerW ?? ParseWatts(homePower);
 
-        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, ct);
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, ct);
         string exportPriceHysteresisText = F(exportPriceHysteresis);
         string effectiveSellFloorText = double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double sugForFloor)
             ? ExportPricePlanner.EffectiveSellFloor(sugForFloor, exportPriceHysteresis).ToString("0.000", CultureInfo.InvariantCulture)
@@ -331,11 +356,11 @@ public class BatteryOptimizerWorker(
         if (!string.IsNullOrWhiteSpace(customPrompt))
         {
             // Use custom prompt but interpolate live telemetry variables
-            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText, exportPriceHysteresisText, effectiveSellFloorText);
+            prompt = InterpolatePromptVariables(customPrompt, forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText, exportPriceHysteresisText, effectiveSellFloorText, F(conservePercent));
         }
         else
         {
-            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText, exportPriceHysteresisText, effectiveSellFloorText);
+            prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText, exportPriceHysteresisText, effectiveSellFloorText, F(conservePercent));
         }
 
         prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
@@ -797,13 +822,14 @@ public class BatteryOptimizerWorker(
         int hoursAhead,
         double exportPriceHysteresis,
         double? homeLoadWatts,
+        double conservePercent,
         CancellationToken ct)
     {
         if (!double.TryParse(soc, out double socPct))
             return ("unknown", "unknown", "unknown", "unknown", "unknown", false);
 
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
-        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now);
+        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now, conservePercent);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
         double sellableKwh = SocPlanner.SellableKwh(storedKwh, floorKwh, batteryCapacityKwh);
         var (bestWindow, suggested, powerLimit, hold) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, surplusKwh, exportPowerKw, exportPriceHysteresis, homeLoadWatts, ct);
@@ -820,11 +846,11 @@ public class BatteryOptimizerWorker(
     private static double NetSolarKwhUntil18(double remainingSolarKwh, double avgLoadKw, double hoursTo18) =>
         remainingSolarKwh * 0.9 * SolarConfidence - Math.Max(avgLoadKw, DaytimeLoadKw) * hoursTo18;
 
-    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, double heatingReserveKwh, DateTime localNow)
+    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, double heatingReserveKwh, DateTime localNow, double conservePercent)
     {
         double hour = localNow.TimeOfDay.TotalHours;
         double netSolarKwh = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, Math.Max(0, 18 - hour));
-        return SocPlanner.FloorKwh(capacityKwh, avgLoadKw, netSolarKwh, heatingReserveKwh, hour);
+        return SocPlanner.FloorKwh(capacityKwh, avgLoadKw, netSolarKwh, heatingReserveKwh, hour, conservePercent);
     }
 
     private static async Task<(string Window, string Suggested, string PowerLimit, bool Hold)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double sellableKwh, double surplusKwh, double exportPowerKw, double exportPriceHysteresis, double? homeLoadWatts, CancellationToken ct)
@@ -1000,7 +1026,8 @@ public class BatteryOptimizerWorker(
         string exportStartSoc,
         string importMinStopSoc,
         string exportPriceHysteresis,
-        string effectiveSellFloor)
+        string effectiveSellFloor,
+        string conserveSoc)
     {
         return $$"""
                 You are a quantitative wholesale electricity arbitrage trader managing a Sigenstor home battery in NSW, Australia.
@@ -1008,7 +1035,7 @@ public class BatteryOptimizerWorker(
                 Your objective is to maximize net financial profit in AUD over the next {{forecastHours}} hours while:
                 - Accounting for approximately 10% round-trip battery and inverter losses.
                 - Accounting for a battery degradation cost of $0.05/kWh.
-                - Maintaining enough energy for household consumption, specifically ensuring the battery is at ~30% SOC at 06:00 the next morning (never below the 20% hard floor) to cover overnight and next-morning loads.
+                - Maintaining enough energy for household consumption, specifically ensuring the battery is at ~{{conserveSoc}}% SOC at 06:00 the next morning (never below the 20% hard floor) to cover overnight and next-morning loads.
                 - Avoiding unnecessary battery cycling.
                 - Following all safety rules below.
 
@@ -1073,7 +1100,7 @@ public class BatteryOptimizerWorker(
                 - Preserve enough energy to serve the household until solar generation becomes useful.
                 - Do not discharge below the safe reserve unless the current feed-in price is exceptionally high.
                 - Use the expected solar generation after subtracting household consumption.
-                - Do not dump energy if the solar forecast is insufficient to restore the battery to the energy required at 18:00 (enough for ~30% at 06:00 next day).
+                - Do not dump energy if the solar forecast is insufficient to restore the battery to the energy required at 18:00 (enough for ~{{conserveSoc}}% at 06:00 next day).
 
                 3. SOLAR FORECAST INTERPRETATION
 
@@ -1081,7 +1108,7 @@ public class BatteryOptimizerWorker(
                 - The hourly Solcast values show the expected timing of that generation.
                 - Do not assume that all remaining solar will arrive before 18:00.
                 - Subtract expected household consumption from available solar before estimating energy available for battery charging.
-                - If the hourly forecast shows little or no useful solar before 18:00, prioritize reaching and keeping the energy needed to reach ~30% SOC at 06:00 next day via profitable low-cost grid charging if needed.
+                - If the hourly forecast shows little or no useful solar before 18:00, prioritize reaching and keeping the energy needed to reach ~{{conserveSoc}}% SOC at 06:00 next day via profitable low-cost grid charging if needed.
                 - Evaluate profitable grid charging only when the expected future export price justifies it or when charging at cheap midday rates avoids higher evening import costs.
 
                 4. MIDDAY SOLAR AND NEGATIVE PRICING
@@ -1098,7 +1125,7 @@ public class BatteryOptimizerWorker(
 
                 5. LOOK-AHEAD EXPORT & 06:00 TARGET
 
-                The requirement is to be at ~30% SOC at 06:00 next day (hard floor 20%). floor_kWh is the system's calculation of the minimum energy to hold now, from forecast solar, expected load and overnight needs. Do not use a fixed SOC at 18:00.
+                The requirement is to be at ~{{conserveSoc}}% SOC at 06:00 next day (hard floor 20%). floor_kWh is the system's calculation of the minimum energy to hold now, from forecast solar, expected load and overnight needs. Do not use a fixed SOC at 18:00.
 
                 - Only export energy above floor_kWh. Keep the rest in SELF CONSUME unless an extreme price spike (>$2.00/kWh) occurs.
                 - Look ahead: best_feed_in_window includes a look-ahead comparing the current feed-in price with the best later price (discounted for forecast distance; stored energy has the same loss whether sold now or later). If it says HOLD, do not sell now; keep the energy for the later window (suggested_export_price is already set above the current price). If it says SELL NOW, sell now.
@@ -1110,11 +1137,11 @@ public class BatteryOptimizerWorker(
 
                 6. OVERNIGHT AND HOUSEHOLD-LOAD PROTECTION
 
-                After 18:00, floor_kWh is the energy needed to carry the house through the night and still be at ~30% SOC at 06:00.
+                After 18:00, floor_kWh is the energy needed to carry the house through the night and still be at ~{{conserveSoc}}% SOC at 06:00.
 
                 - Protect enough energy for expected overnight and morning household consumption until solar ramps up.
                 - Any SOC above what is needed for overnight/morning load can be exported overnight if feed-in prices are attractive and exceed next-morning import replacement costs.
-                - Do not export below 30% SOC overnight unless the feed-in price exceeds $0.80/kWh or an extreme price event justifies it.
+                - Do not export below {{conserveSoc}}% SOC overnight unless the feed-in price exceeds $0.80/kWh or an extreme price event justifies it.
                 - If the battery is unlikely to receive useful solar the next morning, keep a higher overnight reserve.
 
                 7. SOC AND POWER LIMITS
@@ -1132,8 +1159,8 @@ public class BatteryOptimizerWorker(
 
                 The hot_water mode sets the tank's target temperature: FULL = 80 degrees C, MINIMAL = 60 degrees C, OFF = no heating.
                 Set hot_water to exactly one of OFF, MINIMAL, or FULL using the Hot Water Tank Temperature in the telemetry below:
-                - FULL only when hot_water_full_ok in COMPUTED VALUES starts with YES. The system has already checked the tank temperature, the 11:00-16:00 solar window, the battery SOC and that the 06:00 30% target still holds after the extra heating. Never choose FULL when it says NO.
-                - OFF when the battery SOC is below 25%, or it is 16:30-21:30, or the average import price over the next 2 hours is above $0.25/kWh and the tank is at or above 45 degrees C, or heating to 60 degrees C would put the 06:00 30% target at risk.
+                - FULL only when hot_water_full_ok in COMPUTED VALUES starts with YES. The system has already checked the tank temperature, the 11:00-16:00 solar window, the battery SOC and that the 06:00 {{conserveSoc}}% target still holds after the extra heating. Never choose FULL when it says NO.
+                - OFF when the battery SOC is below 25%, or it is 16:30-21:30, or the average import price over the next 2 hours is above $0.25/kWh and the tank is at or above 45 degrees C, or heating to 60 degrees C would put the 06:00 {{conserveSoc}}% target at risk.
                 - MINIMAL in all other cases, including when the tank temperature is unknown.
                 - Do not heat from grid energy when the 2 hour average import price is above $0.20/kWh. Solar-powered heating is allowed at any import price.
 
@@ -1142,14 +1169,14 @@ public class BatteryOptimizerWorker(
                 Before selecting thresholds:
 
                 1. Determine whether the battery should CHARGE, DISCHARGE, or SELF CONSUME.
-                2. Check current SOC against floor_kWh (30% at 06:00 target) and expected Solcast generation.
+                2. Check current SOC against floor_kWh ({{conserveSoc}}% at 06:00 target) and expected Solcast generation.
                 3. Identify any excess capacity above floor_kWh and find the best realistic export window (daytime, evening peak, or overnight).
                 4. Calculate whether any proposed cycle remains profitable after losses and degradation.
                 5. Select conservative SELF CONSUME thresholds when the data is ambiguous.
 
                 The reasoning must clearly explain:
                 - Whether the battery should charge, discharge, or self consume.
-                - How current SOC and Solcast compare to the 30% at 06:00 target and whether the look-ahead says HOLD or SELL NOW.
+                - How current SOC and Solcast compare to the {{conserveSoc}}% at 06:00 target and whether the look-ahead says HOLD or SELL NOW.
                 - The expected profitable price spread and highest-value forecast period.
                 - The estimated overnight/morning household-load requirement.
                 - The reason for the selected export_stop_soc and charge_stop_soc limits.
@@ -1178,6 +1205,7 @@ public class BatteryOptimizerWorker(
                 - import_min_stop_soc = {{importMinStopSoc}}
                 - export_price_hysteresis = {{exportPriceHysteresis}}
                 - effective_sell_floor = {{effectiveSellFloor}}
+                - conserve_soc_at_6am = {{conserveSoc}}
                 An export that has started continues until the feed-in price falls below export_price - export_price_hysteresis (effective_sell_floor), so judge Tests B and C against effective_sell_floor for energy already being sold, and against suggested_export_price for starting a sale.
 
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
@@ -1206,7 +1234,8 @@ public class BatteryOptimizerWorker(
         string exportStartSoc,
         string importMinStopSoc,
         string exportPriceHysteresis,
-        string effectiveSellFloor)
+        string effectiveSellFloor,
+        string conserveSoc)
     {
         // Create a dictionary
         var replacements = new Dictionary<string, string>
@@ -1232,7 +1261,8 @@ public class BatteryOptimizerWorker(
                         { "{{exportStartSoc}}", exportStartSoc },
                         { "{{importMinStopSoc}}", importMinStopSoc },
                         { "{{exportPriceHysteresis}}", exportPriceHysteresis },
-                        { "{{effectiveSellFloor}}", effectiveSellFloor }
+                        { "{{effectiveSellFloor}}", effectiveSellFloor },
+                        { "{{conserveSocAt6am}}", conserveSoc }
                     };
 
         string result = customPrompt;

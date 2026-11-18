@@ -37,24 +37,28 @@ public static class SocPlanner
     public const double HardFloorPercent = 20;
     public const double OvernightHours = 12;
 
+    /// <summary>Keeps the user's 06:00 target between the 20% hard floor and 100%.</summary>
+    public static double ClampMorningTarget(double percent) =>
+        double.IsFinite(percent) ? Math.Clamp(percent, HardFloorPercent, 100) : MorningTargetPercent;
+
     /// <summary>Energy the battery must hold at 18:00 to carry the house to 06:00 with the morning target still left.</summary>
-    public static double RequiredKwhAt18(double capacityKwh, double avgLoadKw) =>
-        Math.Min(capacityKwh, capacityKwh * MorningTargetPercent / 100 + Math.Max(avgLoadKw, 0) * OvernightHours);
+    public static double RequiredKwhAt18(double capacityKwh, double avgLoadKw, double morningTargetPercent = MorningTargetPercent) =>
+        Math.Min(capacityKwh, capacityKwh * morningTargetPercent / 100 + Math.Max(avgLoadKw, 0) * OvernightHours);
 
     /// <summary>
     /// Lowest stored energy allowed now so the battery is at the morning target (30%) at 06:00 next day.
     /// Before 18:00 the net solar still to come (after heating) can make up the shortfall at 18:00. Never below the 20% hard floor.
     /// </summary>
-    public static double FloorKwh(double capacityKwh, double avgLoadKw, double netSolarKwhUntil18, double heatingReserveKwh, double hourOfDay)
+    public static double FloorKwh(double capacityKwh, double avgLoadKw, double netSolarKwhUntil18, double heatingReserveKwh, double hourOfDay, double morningTargetPercent = MorningTargetPercent)
     {
         double minKwh = capacityKwh * HardFloorPercent / 100;
         double floor;
         if (hourOfDay >= 6 && hourOfDay < 18)
-            floor = RequiredKwhAt18(capacityKwh, avgLoadKw) - Math.Max(netSolarKwhUntil18 - heatingReserveKwh, 0);
+            floor = RequiredKwhAt18(capacityKwh, avgLoadKw, morningTargetPercent) - Math.Max(netSolarKwhUntil18 - heatingReserveKwh, 0);
         else
         {
             double hoursTo0600 = hourOfDay >= 18 ? (24 - hourOfDay) + 6 : 6 - hourOfDay;
-            floor = capacityKwh * MorningTargetPercent / 100 + Math.Max(avgLoadKw, 0) * hoursTo0600;
+            floor = capacityKwh * morningTargetPercent / 100 + Math.Max(avgLoadKw, 0) * hoursTo0600;
         }
 
         return Math.Round(Math.Min(Math.Max(floor, minKwh), capacityKwh), 2);

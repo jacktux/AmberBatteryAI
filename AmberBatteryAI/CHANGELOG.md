@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- Master switch `input_boolean.amber_battery_ai_optimizer` (entity configurable via `HomeAssistant:MasterSwitchEntity`). When it is off each cycle does nothing: no AI call and no helper or hot water writes; a "skipped" line is kept in the decision log (not published to HA). A missing helper counts as on.
+- The morning target now comes from `input_number.battery_conserve_at_6am` (percent, clamped 20-100, default 30 if missing; entity configurable via `HomeAssistant:ConserveAt6amEntity`) instead of the fixed 30%. It drives floor_kWh, the 18:00 requirement and the hot water check, and appears in the prompt as `{{conserveSoc}}` / the new computed value `conserve_soc_at_6am` (`{{conserveSocAt6am}}` in custom prompts).
+- Custom prompts: add `- conserve_soc_at_6am = {{conserveSocAt6am}}` under COMPUTED VALUES and replace any fixed "30% at 06:00" wording with `{{conserveSocAt6am}}%`.
+
 ### Changed
 - The reasoning shown on the dashboard now ends with a "[System] Applied: ..." line stating whether an export is really happening (live feed-in versus the export price, SOC versus the export start SOC), so "discharging now" cannot contradict a held export. The prompt tells the model that house-load discharge is automatic in SELF CONSUME and that during HOLD it must not claim to export now. The logged ai_response is unchanged.
 
