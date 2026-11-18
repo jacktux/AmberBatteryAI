@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- The reasoning shown on the dashboard now ends with a "[System] Applied: ..." line stating whether an export is really happening (live feed-in versus the export price, SOC versus the export start SOC), so "discharging now" cannot contradict a held export. The prompt tells the model that house-load discharge is automatic in SELF CONSUME and that during HOLD it must not claim to export now. The logged ai_response is unchanged.
+
 ## 1.6.0
 
 ### Changed

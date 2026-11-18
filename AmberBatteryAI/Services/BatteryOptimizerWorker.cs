@@ -106,6 +106,21 @@ public class BatteryOptimizerWorker(
         }
     }
 
+    private static string AppendAppliedNote(string? reasoning, string? mode, double exportPrice, double exportStartSoc, double soc, string feedInState, bool hold)
+    {
+        string note;
+        if (!double.TryParse(feedInState, NumberStyles.Float, CultureInfo.InvariantCulture, out double feedIn))
+            note = $"Applied: {mode}. Export starts only when feed-in reaches ${F(exportPrice)}.";
+        else if (feedIn >= exportPrice && soc > exportStartSoc)
+            note = $"Applied: {mode}. Feed-in ${F(feedIn)} is at or above the export price ${F(exportPrice)}, so the export automation is exporting.";
+        else if (feedIn < exportPrice)
+            note = $"Applied: {mode}. Not exporting: feed-in ${F(feedIn)} is below the export price ${F(exportPrice)}{(hold ? " (look-ahead HOLD for a better later window)" : "")}. The battery only covers the house load.";
+        else
+            note = $"Applied: {mode}. Not exporting: SOC {F(soc)}% is not above the export start SOC {F(exportStartSoc)}%.";
+
+        return string.IsNullOrWhiteSpace(reasoning) ? note : reasoning.TrimEnd() + "\n\n[System] " + note;
+    }
+
     private const double DefaultExportPriceHysteresis = 0.02;
 
     // "1.2 kW" or "850 W" as watts; null when unavailable.
@@ -483,6 +498,10 @@ public class BatteryOptimizerWorker(
 
         double exportStartSoc = SocPlanner.ExportStartSoc(safeExportStopSoc, exportSocHysteresis);
         double importStartSoc = SocPlanner.ImportStartSoc(safeImportStopSoc, importSocHysteresis);
+
+        // The model's reasoning can describe a plan the system did not apply (for example "discharge now" while the
+        // look-ahead is holding), so state what is actually in force. The logged ai_response keeps the original text.
+        decision = decision with { Reasoning = AppendAppliedNote(decision.Reasoning, decision.Mode, safeExportPrice, exportStartSoc, socNow, currentFeedInState, lookAheadHold) };
 
         _pending = entry = entry with
         {
@@ -1134,6 +1153,7 @@ public class BatteryOptimizerWorker(
                 - The expected profitable price spread and highest-value forecast period.
                 - The estimated overnight/morning household-load requirement.
                 - The reason for the selected export_stop_soc and charge_stop_soc limits.
+                Discharging to cover house load happens automatically in SELF CONSUME and is not an export. Only export_price decides when energy is sold: it starts when the live feed-in price reaches export_price. While the look-ahead says HOLD, never say the battery is being discharged or exported "now"; say the export will begin when feed-in reaches export_price.
 
                 LIVE TELEMETRY (Injected at runtime):
                 - Current Local Time: {{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}
