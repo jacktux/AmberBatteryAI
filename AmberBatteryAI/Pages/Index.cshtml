@@ -1,194 +1,11 @@
 @page
 @model AmberBatteryAI.Pages.IndexModel
 @{
-    ViewData["Title"] = "Amber Battery AI";
+    ViewData["Title"] = "Dashboard";
 }
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Amber Battery AI</title>
-    <style>
-        :root {
-            --bg: #111827;
-            --card: #1f2937;
-            --text: #f9fafb;
-            --muted: #9ca3af;
-            --accent: #38bdf8;
-            --gold: #fbbf24;
-            --green: #34d399;
-            --red: #f87171;
-        }
-
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-
-        h1 {
-            margin: 0;
-            font-size: 1.5rem;
-        }
-
-        button {
-            background: var(--accent);
-            color: #0f172a;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 8px;
-            font-weight: 700;
-            cursor: pointer;
-        }
-
-            button:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-            }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 16px;
-            margin-bottom: 16px;
-        }
-
-        @@media (max-width: 600px) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .card {
-            background: var(--card);
-            border-radius: 12px;
-            padding: 18px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-
-        .label {
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--muted);
-            margin-bottom: 6px;
-        }
-
-        .value {
-            font-size: 1.4rem;
-            font-weight: 700;
-        }
-
-        .sub {
-            font-size: 0.9rem;
-            color: var(--muted);
-            margin-top: 6px;
-        }
-
-        .export {
-            border-left: 4px solid var(--gold);
-        }
-
-        .import {
-            border-left: 4px solid var(--accent);
-        }
-
-        .schedule {
-            border-left: 4px solid var(--green);
-        }
-
-        .reason {
-            line-height: 1.55;
-            font-size: 1rem;
-            white-space: pre-wrap;
-        }
-
-        .error {
-            background: rgba(248,113,113,0.15);
-            border: 1px solid var(--red);
-            color: #fecaca;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-        }
-
-        pre.prompt {
-            background: #111322;
-            color: #c8d2e6;
-            padding: 12px;
-            border-radius: 8px;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-
-        .prompt {
-            color: var(--text);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            font-size: 0.85rem;
-            line-height: 1.5;
-            margin: 0;
-            max-height: 500px;
-            overflow: auto;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        a.button {
-            display: inline-block;
-            background: var(--accent);
-            color: #0f172a;
-            padding: 10px 18px;
-            border-radius: 8px;
-            font-weight: 700;
-            text-decoration: none;
-        }
-
-        table.history {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 12px;
-            font-size: 0.85rem;
-        }
-
-            table.history th, table.history td {
-                text-align: left;
-                padding: 6px 8px;
-                border-bottom: 1px solid rgba(255,255,255,0.08);
-                vertical-align: top;
-            }
-
-            table.history th {
-                color: var(--muted);
-                font-weight: 600;
-            }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Amber Battery AI Optimizer</h1>
-            <button id="runBtn" type="button" onclick="triggerRun()">Run Optimization Now</button>
-        </div>
-
-        <div id="errorBox" class="error" style="display:none;"></div>
+@section HeaderActions {
+    <button id="runBtn" type="button" onclick="triggerRun()">Run Optimization Now</button>
+}
 
         <div class="grid">
             <div class="card schedule">
@@ -218,326 +35,48 @@
 
         </div>
 
+
         <div class="card" style="margin-bottom: 16px;">
             <div class="label">AI Strategy Reasoning</div>
             <div class="value" id="mode">--</div>
             <div class="reason" id="reasoning">Waiting for first optimization cycle...</div>
         </div>
 
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">AI Decision History</div>
-            <div class="sub">Every run is saved and published to Home Assistant as <code>sensor.battery_ai_decision</code> (History) and in the Activity panel. Hover a row to see the AI's reasoning.</div>
-            <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-                <a class="button" href="api/decisions?days=7&amp;format=csv">Download CSV summary (7 days)</a>
-                <a class="button" href="api/decisions?days=7&amp;format=jsonl" style="background: var(--muted);">Download full log (7 days)</a>
-            </div>
-            <div style="overflow-x: auto;">
-                <table class="history">
-                    <thead>
-                        <tr><th>Time</th><th>Result</th><th>Export</th><th>Import</th><th>Hot water</th><th>Overrides / notes</th></tr>
-                    </thead>
-                    <tbody id="historyRows">
-                        <tr><td colspan="6">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Daily Profit &amp; Loss</div>
-            <div class="sub">Built from power and price samples taken every few minutes. "Avoided import" is house load served by solar or the battery, valued at the import price. "Best" is the highest feed-in price seen that day; "30 min" is the best 30-minute average.</div>
-            <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-                <a class="button" href="api/pnl?days=14&amp;format=csv">Download CSV (14 days)</a>
-            </div>
-            <div style="overflow-x: auto;">
-                <table class="history">
-                    <thead>
-                        <tr><th>Day</th><th>Exported</th><th>Imported</th><th>Avoided import</th><th>Net cash</th><th>Sold at (avg)</th><th>Best price / 30 min</th></tr>
-                    </thead>
-                    <tbody id="pnlRows">
-                        <tr><td colspan="7">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Feed-in Forecast Error (14 days)</div>
-            <div class="sub">Actual minus forecast feed-in price, by how far ahead the forecast was. Positive means the forecast was too low. Shown only; it is not used in decisions.</div>
-            <div style="overflow-x: auto;">
-                <table class="history">
-                    <thead>
-                        <tr><th>Lead time</th><th>Average error</th><th>Average absolute error</th><th>Forecasts compared</th></tr>
-                    </thead>
-                    <tbody id="biasRows">
-                        <tr><td colspan="4">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Latest AI Prompt Sent</div>
-            <button type="button" onclick="copyLatestPrompt()" style="margin-top: 8px;">Copy Prompt</button>
-            <span id="copyStatus" style="margin-left: 8px; color: var(--muted); font-size: 0.9rem;"></span>
-            <pre class="prompt" id="prompt">Waiting for first optimization cycle...</pre>
-        </div>
 
         <div class="card" style="margin-bottom: 16px;">
             <div class="label">Latest Telemetry Snapshot</div>
             <div class="sub" id="telemetry" style="color: var(--text); line-height: 1.6;">--</div>
         </div>
 
-        <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Custom AI Prompt</div>
-            <button id="editPromptBtn" type="button" onclick="showPromptEditor()">Edit Custom Prompt</button>
-            <button type="button" onclick="showPlaceholderHelp()" style="background: var(--muted); margin-left: 8px;">? Help</button>
-            <div id="promptEditorContainer" style="display: none; margin-top: 12px;">
-                <textarea id="customPromptTextarea" style="width: 100%; min-height: 300px; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 0.9rem; color: var(--text); background: var(--card); border: 1px solid var(--muted); resize: vertical;"></textarea>
-                <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button type="button" onclick="saveCustomPrompt()" style="background: var(--green);">Save Custom Prompt</button>
-                    <button type="button" onclick="loadDefaultPrompt()" style="background: var(--gold);">Load Default Prompt</button>
-                    <button type="button" onclick="showPlaceholderHelpInEditor()" style="background: var(--muted);">? Placeholders</button>
-                    <button type="button" onclick="hidePromptEditor()">Cancel</button>
-                </div>
-            </div>
-            <div id="promptStatus" style="margin-top: 8px; font-size: 0.9rem; color: var(--muted);">--</div>
-        </div>
 
-        <!-- Help Modal -->
-        <div id="helpModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
-            <div style="background: var(--card); color: var(--text); margin: 40px auto; padding: 24px; border-radius: 12px; max-width: 600px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h2 style="margin: 0; font-size: 1.4rem;">Available Prompt Placeholders</h2>
-                    <button type="button" onclick="hideHelpModal()" style="background: var(--red); padding: 8px 12px; border: none; color: white; cursor: pointer; border-radius: 4px;">?</button>
-                </div>
-
-                <p style="color: var(--muted); margin-bottom: 16px;">Use these placeholders in your custom prompt. They will be automatically replaced with live data:</p>
-
-                <div style="background: var(--bg); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-family: monospace; font-size: 0.85rem; line-height: 1.8;">
-                    <div><strong>{{forecastHours}}</strong><br><span style="color: var(--muted);">Number of hours to forecast (e.g., 12)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}</strong><br><span style="color: var(--muted);">Current date and time with timezone</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{soc}}</strong><br><span style="color: var(--muted);">Battery State of Charge percentage (e.g., 57.9)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{kwhBudgetSummary}}</strong><br><span style="color: var(--muted);">Energy budget details (stored kWh, usable, needed)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{batteryPower}}</strong><br><span style="color: var(--muted);">Current battery power flow with unit (charging/discharging)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{homePower}}</strong><br><span style="color: var(--muted);">Current household load (e.g., 644.0 W)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{gridStatus}}</strong><br><span style="color: var(--muted);">Grid connection status (e.g., "On grid" or "Off grid")</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{generalSummary}}</strong><br><span style="color: var(--muted);">Import price and forecast</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{feedInSummary}}</strong><br><span style="color: var(--muted);">Export (feed-in) price and forecast</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{weatherSummary}}</strong><br><span style="color: var(--muted);">Weather outlook</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{solarSummary}}</strong><br><span style="color: var(--muted);">Solar forecast (Solcast)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{hotWaterTemp}}</strong><br><span style="color: var(--muted);">Hot water tank temperature (e.g., 52.3 �C)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{floorKwh}}</strong><br><span style="color: var(--muted);">Battery floor energy in kWh (20% reserve)</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{surplusKwh}}</strong><br><span style="color: var(--muted);">Stored energy above the floor in kWh</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{bestWindow}}</strong><br><span style="color: var(--muted);">Highest feed-in price interval in the forecast</span></div>
-                                                          <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{hotWaterFull}}</strong><br><span style="color: var(--muted);">Whether the system allows hot water FULL (80 C): YES or NO, with the reason</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{exportStartSoc}}</strong><br><span style="color: var(--muted);">SOC (%) above which the export automation starts: export stop SOC plus the export SOC hysteresis helper</span></div>
-                    <hr style="border: none; border-top: 1px solid var(--muted); margin: 8px 0;">
-
-                    <div><strong>{{importMinStopSoc}}</strong><br><span style="color: var(--muted);">Lowest import stop SOC (%) at which charging can start from the current SOC: current SOC plus the import SOC hysteresis helper plus 1</span></div>
-
-                                                          <div><strong>{{suggestedExportPrice}}</strong><br><span style="color: var(--muted);">Suggested export price: the price of the forecast slot that completes selling the surplus when the best-priced slots are used at the export power limit, minus $0.01. Forecast prices are discounted from 0% at 4 hours ahead to 20% at 10 hours and beyond.</span></div>
-
-                <div style="background: rgba(251, 191, 36, 0.2); border: 1px solid var(--gold); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-                    <strong style="color: var(--gold);">?? Example:</strong>
-                    <pre style="margin: 8px 0; color: var(--text); font-size: 0.85rem;">Current time: {{DateTimeOffset.Now:yyyy-MM-dd HH:mm zzz}}
-            Battery SOC: {{soc}}%
-            Grid Status: {{gridStatus}}
-            Import Price: {{generalSummary}}
-            Export Price: {{feedInSummary}}</pre>
-                </div>
-
-                <button type="button" onclick="hideHelpModal()" style="background: var(--accent); color: #0f172a; padding: 10px 18px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%;">Close</button>
-            </div>
-        </div>
-
-
-    </div>
-
+@section Scripts {
     <script>
-            let nextRunIso = null;
-            let defaultPromptTemplate = null;
-            let lastHistoryRun;
+        let nextRunIso = null;
 
-            async function loadHistory() {
-                const body = document.getElementById('historyRows');
-                try {
-                    const res = await fetch('api/decisions?days=3&limit=10');
-                    const entries = (await res.json()).reverse();
-                    body.replaceChildren();
+        function onStatus(data) {
+            nextRunIso = data.nextRunUtc;
+            const btn = document.getElementById('runBtn');
+            btn.disabled = data.isRunning;
+            btn.textContent = data.isRunning ? 'Running Cycle...' : 'Run Optimization Now';
 
-                    if (entries.length === 0) {
-                        const cell = body.insertRow().insertCell();
-                        cell.colSpan = 6;
-                        cell.textContent = 'No decisions recorded yet.';
-                        return;
-                    }
+            const lastStr = data.lastRunUtc ? new Date(data.lastRunUtc).toLocaleTimeString() : 'Never';
+            const nextStr = data.nextRunUtc ? new Date(data.nextRunUtc).toLocaleTimeString() : '--';
+            document.getElementById('scheduleTimes').textContent = 'Last run: ' + lastStr + ' | Next: ' + nextStr;
+            document.getElementById('gridStatus').textContent = data.gridStatus || 'Unknown';
 
-                    for (const e of entries) {
-                        const a = e.applied;
-                        const result = e.outcome === 'applied' && e.ai_response ? e.ai_response.mode : e.outcome;
-                        const notes = (e.overrides || []).concat(e.note ? [e.note] : []).join('; ');
-                        const cells = [
-                            new Date(e.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-                            result,
-                            a ? '>= $' + a.export_price.toFixed(3) + ' to ' + a.export_stop_soc + '%' : '--',
-                            a ? '<= $' + a.import_price.toFixed(2) + ' to ' + a.import_stop_soc + '%' : '--',
-                            a && a.hot_water ? a.hot_water : '--',
-                            notes
-                        ];
+            if (data.decision) {
+                document.getElementById('mode').textContent = data.decision.mode || 'Unknown';
+                document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
+                document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '') + ' | Max ' + data.decision.exportPowerLimit + 'W';
 
-                        const row = body.insertRow();
-                        if (e.ai_response && e.ai_response.reasoning) row.title = e.ai_response.reasoning;
-                        for (const text of cells) row.insertCell().textContent = text;
-                    }
-                } catch (err) {
-                    console.error(err);
-                }
+                document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
+                document.getElementById('importSub').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '') + ' | Max ' + data.decision.importPowerLimit + 'W';
+
+                document.getElementById('reasoning').textContent = data.decision.reasoning;
             }
 
-            async function loadPnl() {
-                const body = document.getElementById('pnlRows');
-                try {
-                    const days = (await (await fetch('api/pnl?days=14')).json()).reverse();
-                    body.replaceChildren();
-
-                    if (days.length === 0) {
-                        const cell = body.insertRow().insertCell();
-                        cell.colSpan = 7;
-                        cell.textContent = 'No samples recorded yet.';
-                        return;
-                    }
-
-                    const money = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
-                    const price = v => v == null ? '--' : '$' + v.toFixed(3);
-                    for (const d of days) {
-                        const cells = [
-                            d.date,
-                            d.export_kwh.toFixed(1) + ' kWh / ' + money(d.export_revenue),
-                            d.import_kwh.toFixed(1) + ' kWh / ' + money(d.import_cost),
-                            d.avoided_import_kwh.toFixed(1) + ' kWh / ' + money(d.avoided_import_value),
-                            money(d.net_cash),
-                            price(d.achieved_sell_price),
-                            price(d.best_sell_price) + ' / ' + price(d.best_sell_price_30min)
-                        ];
-                        const row = body.insertRow();
-                        row.title = d.samples + ' samples covering ' + d.covered_hours + ' h';
-                        for (const text of cells) row.insertCell().textContent = text;
-                    }
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-
-            async function loadBias() {
-                const body = document.getElementById('biasRows');
-                try {
-                    const report = await (await fetch('api/forecast-bias')).json();
-                    body.replaceChildren();
-                    const signed = v => v == null ? '--' : (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(3);
-                    for (const b of report.buckets) {
-                        const row = body.insertRow();
-                        for (const text of [b.bucket, signed(b.mean_error), b.mean_abs_error == null ? '--' : '$' + b.mean_abs_error.toFixed(3), b.count])
-                            row.insertCell().textContent = text;
-                    }
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-
-            async function copyLatestPrompt() {
-                const text = document.getElementById('prompt').textContent;
-                const status = document.getElementById('copyStatus');
-                try {
-                    await navigator.clipboard.writeText(text);
-                    status.textContent = 'Copied';
-                } catch (e) {
-                    status.textContent = 'Copy failed';
-                }
-                setTimeout(() => status.textContent = '', 2000);
-            }
-
-        async function refreshStatus() {
-            try {
-                const res = await fetch('api/status');
-                const data = await res.json();
-
-                nextRunIso = data.nextRunUtc;
-                if (data.lastRunUtc !== lastHistoryRun) {
-                    lastHistoryRun = data.lastRunUtc;
-                    loadHistory();
-                    loadPnl();
-                    loadBias();
-                }
-                const btn = document.getElementById('runBtn');
-                btn.disabled = data.isRunning;
-                btn.textContent = data.isRunning ? 'Running Cycle...' : 'Run Optimization Now';
-
-                const errBox = document.getElementById('errorBox');
-                if (data.lastError) {
-                    errBox.style.display = 'block';
-                    errBox.textContent = 'Last Error: ' + data.lastError;
-                } else {
-                    errBox.style.display = 'none';
-                }
-
-                const lastStr = data.lastRunUtc ? new Date(data.lastRunUtc).toLocaleTimeString() : 'Never';
-                const nextStr = data.nextRunUtc ? new Date(data.nextRunUtc).toLocaleTimeString() : '--';
-                document.getElementById('scheduleTimes').textContent = 'Last run: ' + lastStr + ' | Next: ' + nextStr;
-                document.getElementById('gridStatus').textContent = data.gridStatus || 'Unknown';
-
-                if (data.decision) {
-                    document.getElementById('mode').textContent = data.decision.mode || 'Unknown';
-                    document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
-                    document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '') + ' | Max ' + data.decision.exportPowerLimit + 'W';
-
-                    document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
-                    document.getElementById('importSub').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '') + ' | Max ' + data.decision.importPowerLimit + 'W';
-
-                    document.getElementById('reasoning').textContent = data.decision.reasoning;
-                }
-
-                if (data.telemetrySummary) {
-                    document.getElementById('telemetry').textContent = data.telemetrySummary;
-                }
-
-                if (data.prompt) {
-                    document.getElementById('prompt').textContent = data.prompt;
-                }
-            } catch (e) {
-                console.error(e);
+            if (data.telemetrySummary) {
+                document.getElementById('telemetry').textContent = data.telemetrySummary;
             }
         }
 
@@ -553,93 +92,13 @@
             document.getElementById('countdown').textContent = String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's';
         }
 
-        function showPromptEditor() {
-            document.getElementById('promptEditorContainer').style.display = 'block';
-            loadCurrentCustomPrompt();
-        }
-
-        function hidePromptEditor() {
-            document.getElementById('promptEditorContainer').style.display = 'none';
-        }
-
-        async function loadCurrentCustomPrompt() {
-            try {
-                const res = await fetch('api/prompt');
-                const data = await res.json();
-                document.getElementById('customPromptTextarea').value = data.customPrompt || '';
-            } catch (e) {
-                console.error('Failed to load custom prompt:', e);
-                document.getElementById('promptStatus').textContent = 'Error loading prompt';
-                document.getElementById('promptStatus').style.color = 'var(--red)';
-            }
-        }
-
-        async function saveCustomPrompt() {
-            const customPrompt = document.getElementById('customPromptTextarea').value.trim();
-            if (!customPrompt) {
-                document.getElementById('promptStatus').textContent = 'Prompt cannot be empty';
-                document.getElementById('promptStatus').style.color = 'var(--red)';
-                return;
-            }
-
-            try {
-                const res = await fetch('api/prompt', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customPrompt })
-                });
-
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}`);
-                }
-
-                document.getElementById('promptStatus').textContent = 'Custom prompt saved! It will be used on the next optimization cycle.';
-                document.getElementById('promptStatus').style.color = 'var(--green)';
-                hidePromptEditor();
-            } catch (e) {
-                console.error('Failed to save custom prompt:', e);
-                document.getElementById('promptStatus').textContent = 'Error saving prompt: ' + e.message;
-                document.getElementById('promptStatus').style.color = 'var(--red)';
-            }
-        }
-
-        async function loadDefaultPrompt() {
-            // Provide a hint for the default prompt structure
-            const hint = '(Loading default prompt structure - this would be the built-in prompt if custom prompt is cleared)\n\nTo use the default prompt, clear the text and click "Save Custom Prompt" with an empty field, or refresh the page.';
-            document.getElementById('customPromptTextarea').value = hint;
-            document.getElementById('promptStatus').textContent = 'Clear the text and save to use the default prompt.';
-            document.getElementById('promptStatus').style.color = 'var(--muted)';
-        }
-
-        function showPlaceholderHelp() {
-            document.getElementById('helpModal').style.display = 'block';
-        }
-
-        function showPlaceholderHelpInEditor() {
-            showPlaceholderHelp();
-        }
-
-        function hideHelpModal() {
-            document.getElementById('helpModal').style.display = 'none';
-        }
-
-        // Close modal when clicking outside
-        document.addEventListener('click', function(event) {
-            const modal = document.getElementById('helpModal');
-            if (event.target === modal) {
-                hideHelpModal();
-            }
-        });
-
         async function triggerRun() {
             document.getElementById('runBtn').disabled = true;
             await fetch('api/run-now', { method: 'POST' });
             setTimeout(refreshStatus, 1000);
         }
 
-        refreshStatus();
-        setInterval(refreshStatus, 5000);
+
         setInterval(updateCountdown, 1000);
     </script>
-</body>
-</html>
+}

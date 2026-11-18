@@ -1,0 +1,90 @@
+@page
+@{
+    ViewData["Title"] = "Decisions";
+}
+
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="label">AI Decision History</div>
+            <div class="sub">Every run is saved and published to Home Assistant as <code>sensor.battery_ai_decision</code> (History) and in the Activity panel. Hover a row to see the AI's reasoning.</div>
+            <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <a class="button" href="api/decisions?days=7&amp;format=csv">Download CSV summary (7 days)</a>
+                <a class="button" href="api/decisions?days=7&amp;format=jsonl" style="background: var(--muted);">Download full log (7 days)</a>
+            </div>
+            <div style="overflow-x: auto;">
+                <table class="history">
+                    <thead>
+                        <tr><th>Time</th><th>Result</th><th>Export</th><th>Import</th><th>Hot water</th><th>Overrides / notes</th></tr>
+                    </thead>
+                    <tbody id="historyRows">
+                        <tr><td colspan="6">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="label">Latest AI Prompt Sent</div>
+            <button type="button" onclick="copyLatestPrompt()" style="margin-top: 8px;">Copy Prompt</button>
+            <span id="copyStatus" style="margin-left: 8px; color: var(--muted); font-size: 0.9rem;"></span>
+            <pre class="prompt" id="prompt">Waiting for first optimization cycle...</pre>
+        </div>
+
+
+@section Scripts {
+    <script>
+        async function loadHistory() {
+            const body = document.getElementById('historyRows');
+            try {
+                const res = await fetch('api/decisions?days=3&limit=10');
+                const entries = (await res.json()).reverse();
+                body.replaceChildren();
+
+                if (entries.length === 0) {
+                    const cell = body.insertRow().insertCell();
+                    cell.colSpan = 6;
+                    cell.textContent = 'No decisions recorded yet.';
+                    return;
+                }
+
+                for (const e of entries) {
+                    const a = e.applied;
+                    const result = e.outcome === 'applied' && e.ai_response ? e.ai_response.mode : e.outcome;
+                    const notes = (e.overrides || []).concat(e.note ? [e.note] : []).join('; ');
+                    const cells = [
+                        new Date(e.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                        result,
+                        a ? '>= $' + a.export_price.toFixed(3) + ' to ' + a.export_stop_soc + '%' : '--',
+                        a ? '<= $' + a.import_price.toFixed(2) + ' to ' + a.import_stop_soc + '%' : '--',
+                        a && a.hot_water ? a.hot_water : '--',
+                        notes
+                    ];
+
+                    const row = body.insertRow();
+                    if (e.ai_response && e.ai_response.reasoning) row.title = e.ai_response.reasoning;
+                    for (const text of cells) row.insertCell().textContent = text;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function copyLatestPrompt() {
+            const text = document.getElementById('prompt').textContent;
+            const status = document.getElementById('copyStatus');
+            try {
+                await navigator.clipboard.writeText(text);
+                status.textContent = 'Copied';
+            } catch (e) {
+                status.textContent = 'Copy failed';
+            }
+            setTimeout(() => status.textContent = '', 2000);
+        }
+
+        function onNewRun() { loadHistory(); }
+
+        function onStatus(data) {
+            if (data.prompt) document.getElementById('prompt').textContent = data.prompt;
+        }
+    </script>
+}

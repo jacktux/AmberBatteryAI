@@ -1,0 +1,235 @@
+@{
+    var path = (ViewContext.RouteData.Values["page"] as string ?? "/Index").TrimStart('/');
+    string Active(string page) => string.Equals(path, page, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - Amber Battery AI</title>
+    <style>
+        :root {
+            --bg: #111827;
+            --card: #1f2937;
+            --text: #f9fafb;
+            --muted: #9ca3af;
+            --accent: #38bdf8;
+            --gold: #fbbf24;
+            --green: #34d399;
+            --red: #f87171;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        button {
+            background: var(--accent);
+            color: #0f172a;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+            button:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        @@media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        .label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+
+        .value {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .sub {
+            font-size: 0.9rem;
+            color: var(--muted);
+            margin-top: 6px;
+        }
+
+        .export {
+            border-left: 4px solid var(--gold);
+        }
+
+        .import {
+            border-left: 4px solid var(--accent);
+        }
+
+        .schedule {
+            border-left: 4px solid var(--green);
+        }
+
+        .reason {
+            line-height: 1.55;
+            font-size: 1rem;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            background: rgba(248,113,113,0.15);
+            border: 1px solid var(--red);
+            color: #fecaca;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        pre.prompt {
+            background: #111322;
+            color: #c8d2e6;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .prompt {
+            color: var(--text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin: 0;
+            max-height: 500px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        a.button {
+            display: inline-block;
+            background: var(--accent);
+            color: #0f172a;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        table.history {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+            font-size: 0.85rem;
+        }
+
+            table.history th, table.history td {
+                text-align: left;
+                padding: 6px 8px;
+                border-bottom: 1px solid rgba(255,255,255,0.08);
+                vertical-align: top;
+            }
+
+            table.history th {
+                color: var(--muted);
+                font-weight: 600;
+            }
+
+        nav.tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        nav.tabs a { padding: 8px 14px; border-radius: 6px; background: var(--card); color: var(--text); text-decoration: none; border: 1px solid transparent; }
+        nav.tabs a.active { border-color: var(--muted); font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Amber Battery AI Optimizer</h1>
+            @RenderSection("HeaderActions", required: false)
+        </div>
+
+        <nav class="tabs">
+            <a class="@Active("Index")" href="@Url.Content("~/")">Dashboard</a>
+            <a class="@Active("Decisions")" href="@Url.Content("~/Decisions")">Decisions</a>
+            <a class="@Active("Performance")" href="@Url.Content("~/Performance")">Performance</a>
+            <a class="@Active("Prompt")" href="@Url.Content("~/Prompt")">Prompt</a>
+        </nav>
+
+        <div id="errorBox" class="error" style="display:none;"></div>
+
+        @RenderBody()
+    </div>
+
+    <script>
+        // Each page may define onStatus(data) and onNewRun(data); status is polled every 5 seconds.
+        let lastRun;
+        async function refreshStatus() {
+            try {
+                const data = await (await fetch('api/status')).json();
+                const errBox = document.getElementById('errorBox');
+                if (data.lastError) {
+                    errBox.style.display = 'block';
+                    errBox.textContent = 'Last Error: ' + data.lastError;
+                } else {
+                    errBox.style.display = 'none';
+                }
+                if (typeof onStatus === 'function') onStatus(data);
+                if (data.lastRunUtc !== lastRun) {
+                    lastRun = data.lastRunUtc;
+                    if (typeof onNewRun === 'function') onNewRun(data);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        window.addEventListener('load', () => {
+            refreshStatus();
+            setInterval(refreshStatus, 5000);
+        });
+    </script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

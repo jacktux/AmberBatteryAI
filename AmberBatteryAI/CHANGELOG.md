@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- The web page is split into four pages grouped by function (Dashboard, Decisions, Performance, Prompt) with a shared layout and navigation. Content and API endpoints are unchanged.
 - The prompt (section 7 and CONFIGURABLE_PROMPT.md) now tells the model that the system sets import_stop_soc to the current SOC unless the mode is CHARGE with the import price at or below the threshold, so it should not claim a high import_stop_soc to capture solar. The override layer now enforces this for every non-CHARGE mode and logs it.
 
 ### Added

@@ -1,0 +1,95 @@
+@page
+@{
+    ViewData["Title"] = "Performance";
+}
+
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="label">Daily Profit &amp; Loss</div>
+            <div class="sub">Built from power and price samples taken every few minutes. "Avoided import" is house load served by solar or the battery, valued at the import price. "Best" is the highest feed-in price seen that day; "30 min" is the best 30-minute average.</div>
+            <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <a class="button" href="api/pnl?days=14&amp;format=csv">Download CSV (14 days)</a>
+            </div>
+            <div style="overflow-x: auto;">
+                <table class="history">
+                    <thead>
+                        <tr><th>Day</th><th>Exported</th><th>Imported</th><th>Avoided import</th><th>Net cash</th><th>Sold at (avg)</th><th>Best price / 30 min</th></tr>
+                    </thead>
+                    <tbody id="pnlRows">
+                        <tr><td colspan="7">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+        <div class="card" style="margin-bottom: 16px;">
+            <div class="label">Feed-in Forecast Error (14 days)</div>
+            <div class="sub">Actual minus forecast feed-in price, by how far ahead the forecast was. Positive means the forecast was too low. Shown only; it is not used in decisions.</div>
+            <div style="overflow-x: auto;">
+                <table class="history">
+                    <thead>
+                        <tr><th>Lead time</th><th>Average error</th><th>Average absolute error</th><th>Forecasts compared</th></tr>
+                    </thead>
+                    <tbody id="biasRows">
+                        <tr><td colspan="4">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+@section Scripts {
+    <script>
+        async function loadPnl() {
+            const body = document.getElementById('pnlRows');
+            try {
+                const days = (await (await fetch('api/pnl?days=14')).json()).reverse();
+                body.replaceChildren();
+
+                if (days.length === 0) {
+                    const cell = body.insertRow().insertCell();
+                    cell.colSpan = 7;
+                    cell.textContent = 'No samples recorded yet.';
+                    return;
+                }
+
+                const money = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
+                const price = v => v == null ? '--' : '$' + v.toFixed(3);
+                for (const d of days) {
+                    const cells = [
+                        d.date,
+                        d.export_kwh.toFixed(1) + ' kWh / ' + money(d.export_revenue),
+                        d.import_kwh.toFixed(1) + ' kWh / ' + money(d.import_cost),
+                        d.avoided_import_kwh.toFixed(1) + ' kWh / ' + money(d.avoided_import_value),
+                        money(d.net_cash),
+                        price(d.achieved_sell_price),
+                        price(d.best_sell_price) + ' / ' + price(d.best_sell_price_30min)
+                    ];
+                    const row = body.insertRow();
+                    row.title = d.samples + ' samples covering ' + d.covered_hours + ' h';
+                    for (const text of cells) row.insertCell().textContent = text;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function loadBias() {
+            const body = document.getElementById('biasRows');
+            try {
+                const report = await (await fetch('api/forecast-bias')).json();
+                body.replaceChildren();
+                const signed = v => v == null ? '--' : (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(3);
+                for (const b of report.buckets) {
+                    const row = body.insertRow();
+                    for (const text of [b.bucket, signed(b.mean_error), b.mean_abs_error == null ? '--' : '$' + b.mean_abs_error.toFixed(3), b.count])
+                        row.insertCell().textContent = text;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function onNewRun() { loadPnl(); loadBias(); }
+    </script>
+}
