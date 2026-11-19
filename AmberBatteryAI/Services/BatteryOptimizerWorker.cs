@@ -309,6 +309,7 @@ public class BatteryOptimizerWorker(
         double importSocHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ImportSocHysteresisEntity"] ?? "input_number.import_soc_hysteresis", SocPlanner.DefaultHysteresis, ct);
 
         double exportPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportPriceHysteresisEntity"] ?? "input_number.export_price_hysteresis", DefaultExportPriceHysteresis, ct);
+        double importPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ImportPriceHysteresisEntity"] ?? "input_number.import_price_hysteresis", 0, ct);
         double? homeLoadWatts = telemetrySample.HomePowerW ?? ParseWatts(homePower);
         var car = await evGrab.ReadStatusAsync(haClient, ct);
         if (telemetrySample.EvPowerW is > 200)
@@ -657,7 +658,8 @@ public class BatteryOptimizerWorker(
                 decision.Reasoning,
                 exportStartSoc,
                 importStartSoc,
-                ExportPricePlanner.EffectiveSellFloor(safeExportPrice, exportPriceHysteresis)),
+                ExportPricePlanner.EffectiveSellFloor(safeExportPrice, exportPriceHysteresis),
+                Math.Round(safeImportPrice + Math.Max(0, importPriceHysteresis), 3)),
             telemetrySnapshot,
             prompt);
 

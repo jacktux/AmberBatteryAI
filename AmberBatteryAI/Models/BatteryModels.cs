@@ -26,7 +26,8 @@ public record AppliedDecision(
     string Reasoning,
     double? ExportStartSoc = null,
     double? ImportStartSoc = null,
-    double? ExportStopPrice = null
+    double? ExportStopPrice = null,
+    double? ImportStopPrice = null
 );
 
 public record StatusSnapshot(

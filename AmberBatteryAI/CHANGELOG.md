@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.5 (2026-11-19)
+
+### Fixed
+- The import card now reads `input_number.import_price_hysteresis` (entity key `HomeAssistant:ImportPriceHysteresisEntity`; 0 if unreadable) and shows "Stops above $(import price + hysteresis) | Starts at/below $P". Display only; new `import_stop_price` field in the status JSON.
+
 ## 1.12.4 (2026-11-19)
 
 ### Changed
