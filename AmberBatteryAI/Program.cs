@@ -16,6 +16,7 @@ builder.Services.AddSingleton<DayProjectionService>();
 builder.Services.AddHostedService<TelemetrySampler>();
 builder.Services.AddSingleton<OptimizerState>();
 builder.Services.AddHostedService<BatteryOptimizerWorker>();
+builder.Services.AddHostedService<PriceWatcher>();
 
 var app = builder.Build();
 

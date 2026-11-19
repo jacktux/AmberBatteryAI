@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.0
+
+### Added
+- Price watcher: every minute the add-on compares the live Amber prices with the forecast the last run used (no AI call). When the feed-in price is higher than its forecast for the same time, or the buy price lower, by at least `price_watch_shift_percent` (default 10%) and `price_watch_min_shift` (default $0.02/kWh), it starts an extra optimizer run, the same as `/api/run-now`. Only the useful direction counts (feed-in up, buy price down); the export and import automations already stop on their own when prices move the other way. Feed-in must be at least `min_export_price` and the buy price at most `max_import_price`.
+- A cooldown (`price_watch_cooldown_minutes`, default 10) since the last run limits the extra AI calls to at most 6 an hour; a feed-in price above $1.00 only waits 1 minute. Nothing is triggered while a run is in progress or when the master switch is off. The reason is logged ("Price watcher triggers a run: ...").
+- Options: `price_watch_enabled` (default true), `price_watch_shift_percent`, `price_watch_min_shift`, `price_watch_cooldown_minutes`.
+
+### Notes
+- This replaces a Home Assistant automation that calls `/api/run-now` on price moves. An automation for Amber spikes can stay; the two can overlap safely.
+- The forecast snapshot (and the live prices at that moment) is read in the first minute after each run finishes. A price that is still where the last run saw it does not trigger again; it has to move at least `price_watch_min_shift` further in the useful direction.
+
 ## 1.11.1 (2026-11-19)
 
 ### Fixed
