@@ -46,6 +46,13 @@ options:
   solar_forecast_tomorrow_entity: "sensor.solcast_pv_forecast_forecast_tomorrow"
   morning_solar_start_hour: 7.5
   telemetry_sample_minutes: 5
+  ev_power_entity: "sensor.wattpilot_charging_power"
+  ev_subtract_from_load: true
+  ev_control_enabled: true
+  ev_grab_threshold_entity: "input_number.ev_solar_grab_threshold"
+  ev_hold_offset_percent: 10
+  ev_zero_feed_in_threshold_percent: 30
+  ev_hold_feed_in_price: 0.15
 schema:
   ai_provider_endpoint: str
   ai_api_key: password
