@@ -197,4 +197,64 @@ public class DayProjectionTests
         });
         Assert.Contains(report.Hourly, h => h.ImportHighKwh > h.ImportLowKwh);
     }
+
+    private static ProjectionInput TomorrowInput(double solarKw)
+    {
+        var midnight = new DateTimeOffset(Noon.Date.AddDays(1), Offset);
+        var slots = new List<SocPlanner.SolarSlot>();
+        for (var t = midnight.DateTime.AddHours(8); t < midnight.DateTime.AddHours(16); t = t.AddMinutes(30))
+            slots.Add(new SocPlanner.SolarSlot(t, solarKw));
+        return Input(load: 0.5) with { Now = midnight, End = midnight.AddDays(1), Solar = slots, FloorKwhAt = _ => 8, ImportPrices = new List<PricePoint> { new(midnight, 0.30) }, FeedInPrices = new List<PricePoint> { new(midnight, 0.05) } };
+    }
+
+    private static DayProjection WithTomorrow(double solarKw) =>
+        DayProjector.Build(Input(soc: 80) with { ExportThreshold = 0.10, ExportPowerKw = 5, FeedInPrices = Flat(0.20) },
+            new RealisedTotals(), null, 7, false, null, TomorrowInput(solarKw));
+
+    [Fact]
+    public void TomorrowStartsFromSocLeftAtMidnightAndSellingLowersIt()
+    {
+        var p = WithTomorrow(10);
+        var t = p.Tomorrow!;
+        Assert.Equal(p.EndSocPercent, t.WithTodaysPlan.StartSocPercent, 1);
+        Assert.True(t.IfNothingSoldToday.StartSocPercent > t.WithTodaysPlan.StartSocPercent);
+        Assert.Equal(24, t.Hourly.Count);
+        Assert.True(t.SolarKwh > 70);
+    }
+
+    [Fact]
+    public void BigSolarRefillsTheBatteryAndSaysSellingCostsNothing()
+    {
+        var t = WithTomorrow(10).Tomorrow!;
+        Assert.True(t.WithTodaysPlan.PeakSocPercent >= 99);
+        Assert.NotNull(t.WithTodaysPlan.FullAt);
+        Assert.Contains("costs nothing", t.Verdict);
+    }
+
+    [Fact]
+    public void SmallSolarCannotRefillAndSaysEnergyIsBoughtBack()
+    {
+        var t = WithTomorrow(0.5).Tomorrow!;
+        Assert.True(t.WithTodaysPlan.PeakSocPercent < 99);
+        Assert.Contains("bought back", t.Verdict);
+    }
+
+    [Fact]
+    public void OutlookSaysWhetherTomorrowsSolarRefillsTheBattery()
+    {
+        var today = Noon.DateTime;
+        var tomorrow = today.Date.AddDays(1);
+        SocPlanner.SolarSlot[] Day(double kw) => Enumerable.Range(0, 24).Select(i => new SocPlanner.SolarSlot(tomorrow.AddHours(8).AddMinutes(30 * i), kw)).ToArray();
+        var prices = new List<PricePoint> { new(new DateTimeOffset(tomorrow.AddHours(18), Offset), 0.40), new(new DateTimeOffset(tomorrow.AddHours(9), Offset), 0.05) };
+
+        var big = TomorrowOutlook.Build(today, Day(8), prices, prices, 1.0, 40, 30, 0.6);
+        Assert.True(big.Refills);
+        Assert.Contains("can fully refill", big.Text);
+        Assert.Contains("best 0.400 at 18:00", big.Text);
+
+        var small = TomorrowOutlook.Build(today, Day(1), prices, prices, 1.0, 40, 30, 0.6);
+        Assert.False(small.Refills);
+
+        Assert.Contains("no Solcast forecast", TomorrowOutlook.Build(today, Array.Empty<SocPlanner.SolarSlot>(), prices, prices, 1.0, 40, 30, 0.6).Text);
+    }
 }

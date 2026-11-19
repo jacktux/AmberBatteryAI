@@ -27,6 +27,14 @@
         </div>
 
         <div class="card" style="margin-bottom: 16px;">
+            <div class="label">Tomorrow by hour (estimate)</div>
+            <div class="sub">Tomorrow's Solcast solar and your average house load, starting from the battery SOC today's plan leaves at midnight, with tomorrow's Amber prices. No export is planned for tomorrow. Yellow bars are solar kWh, grey bars house load kWh, the blue line is battery SOC at the end of each hour. Hover a bar for import/export and prices. Not used in any decision.</div>
+            <div class="sub" id="tmrVerdict" style="margin-top: 6px; font-weight: 600;"></div>
+            <div id="tmrChart" style="overflow-x: auto; margin-top: 6px;"></div>
+            <div class="sub" id="tmrSummary" style="margin-top: 8px;"></div>
+        </div>
+
+        <div class="card" style="margin-bottom: 16px;">
             <div class="label">Daily Profit &amp; Loss</div>
             <div class="sub">Built from power and price samples taken every few minutes. "Avoided import" is house load served by solar or the battery, valued at the import price. "Best" is the highest feed-in price seen that day; "30 min" is the best 30-minute average.</div>
             <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
@@ -238,7 +246,57 @@
             }
         }
 
+        async function loadTomorrow() {
+            const box = document.getElementById('tmrChart');
+            try {
+                const response = await fetch('api/projection');
+                if (response.status === 204) { box.textContent = 'No projection yet: it is built after the next optimizer run.'; return; }
+                const t = (await response.json()).tomorrow;
+                if (!t) { box.textContent = 'No tomorrow projection is available yet.'; return; }
+                const hours = t.hourly;
+                const ns = 'http://www.w3.org/2000/svg';
+                const max = Math.max(0.5, ...hours.flatMap(h => [h.solar_kwh, h.load_kwh]));
+                const slot = 30, left = 34, top = 8, plot = 140, width = left + hours.length * slot + 6, height = top + plot + 22;
+                const svg = document.createElementNS(ns, 'svg');
+                svg.setAttribute('width', width); svg.setAttribute('height', height);
+                const add = (name, attrs, text) => {
+                    const el = document.createElementNS(ns, name);
+                    for (const k in attrs) el.setAttribute(k, attrs[k]);
+                    if (text !== undefined) el.textContent = text;
+                    svg.appendChild(el); return el;
+                };
+                const y = v => top + plot - v / max * plot;
+                const ySoc = v => top + plot - v / 100 * plot;
+                add('line', { x1: left, x2: width, y1: top + plot, y2: top + plot, stroke: '#666' });
+                add('text', { x: left - 4, y: top + 8, 'text-anchor': 'end', 'font-size': 10, fill: '#999' }, max.toFixed(1) + ' kWh');
+                add('text', { x: left - 4, y: top + plot, 'text-anchor': 'end', 'font-size': 10, fill: '#999' }, '0');
+                const points = [];
+                hours.forEach((h, i) => {
+                    const x = left + i * slot + 3;
+                    const tip = el => el.appendChild(Object.assign(document.createElementNS(ns, 'title'), { textContent:
+                        String(h.hour).padStart(2, '0') + ':00  solar ' + h.solar_kwh + ' kWh, load ' + h.load_kwh + ' kWh, import ' + h.import_kwh + ' kWh at $' + h.import_price +
+                        ', export ' + h.export_kwh + ' kWh at $' + h.feed_in_price + ', battery ' + h.soc_percent + '%' }));
+                    tip(add('rect', { x: x, y: y(h.solar_kwh), width: 11, height: Math.max(0, top + plot - y(h.solar_kwh)), fill: '#e3b341' }));
+                    tip(add('rect', { x: x + 12, y: y(h.load_kwh), width: 11, height: Math.max(0, top + plot - y(h.load_kwh)), fill: '#8b949e' }));
+                    if (h.hour % 3 === 0) add('text', { x: x + 11, y: height - 6, 'text-anchor': 'middle', 'font-size': 10, fill: '#999' }, String(h.hour).padStart(2, '0'));
+                    points.push((x + 11) + ',' + ySoc(h.soc_percent));
+                });
+                add('polyline', { points: points.join(' '), fill: 'none', stroke: '#58a6ff', 'stroke-width': 2 });
+                box.replaceChildren(svg);
+
+                const w = t.with_todays_plan, n = t.if_nothing_sold_today;
+                document.getElementById('tmrVerdict').textContent = t.verdict;
+                document.getElementById('tmrSummary').textContent =
+                    'Tomorrow ' + t.date + ': solar ' + t.solar_kwh.toFixed(1) + ' kWh, house ' + t.load_kwh.toFixed(1) + ' kWh. With today\'s plan: starts ' + w.start_soc_percent.toFixed(0) +
+                    '%, peaks ' + w.peak_soc_percent.toFixed(0) + '%, imports ' + w.import_kwh.toFixed(1) + ' kWh, spills ' + w.spilled_solar_kwh.toFixed(1) + ' kWh of solar. If nothing were sold today: starts ' +
+                    n.start_soc_percent.toFixed(0) + '%, peaks ' + n.peak_soc_percent.toFixed(0) + '%, imports ' + n.import_kwh.toFixed(1) + ' kWh, spills ' + n.spilled_solar_kwh.toFixed(1) + ' kWh.' +
+                    (t.price_forecast_covers_tomorrow ? '' : ' The Amber forecast does not reach tomorrow yet, so the last known prices are held.');
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
         initDaySelector();
-        function onNewRun() { loadProjection(); loadPnl(); loadBias(); }
+        function onNewRun() { loadProjection(); loadTomorrow(); loadPnl(); loadBias(); }
     </script>
 }

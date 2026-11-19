@@ -155,8 +155,8 @@ public class DayProjectionService(TelemetryHistoryService telemetry, ProjectionS
             var now = DateTimeOffset.Now;
             double hoursToMidnight = (new DateTimeOffset(now.Date.AddDays(1), now.Offset) - now).TotalHours + 1;
 
-            var importPrices = await ReadPricesAsync(ha, ctx.GeneralEntity, now, hoursToMidnight, ct);
-            var feedInPrices = await ReadPricesAsync(ha, ctx.FeedInEntity, now, hoursToMidnight, ct);
+            var importPrices = await ReadPricesAsync(ha, ctx.GeneralEntity, now, hoursToMidnight + 24, ct);
+            var feedInPrices = await ReadPricesAsync(ha, ctx.FeedInEntity, now, hoursToMidnight + 24, ct);
             if (importPrices.Count == 0 || feedInPrices.Count == 0)
             {
                 logger.LogInformation("Day projection skipped: no Amber price forecast available.");
@@ -211,11 +211,20 @@ public class DayProjectionService(TelemetryHistoryService telemetry, ProjectionS
                 "Energy left in the battery at midnight is not valued; see end_soc_percent.",
                 bias is null ? "No forecast bias report yet: the range uses Solcast low/high estimates only." : "Range: Solcast 10%/90% solar and feed-in forecast bias plus/minus its average error."
             };
+            var midnight = new DateTimeOffset(now.Date.AddDays(1), now.Offset);
+            var tomorrowInput = input with
+            {
+                Now = midnight,
+                End = midnight.AddDays(1),
+                FloorKwhAt = FloorAt,
+                Bias = bias
+            };
+            notes.Add("Tomorrow starts from the SOC this projection leaves at midnight, uses tomorrow's Solcast and Amber forecasts and the same average house load, and assumes no planned export.");
             DateTimeOffset forecastUntil = feedInPrices.Max(p => p.Time);
             if (forecastUntil < new DateTimeOffset(now.Date.AddDays(1), now.Offset))
                 notes.Add($"The Amber forecast ends at {forecastUntil:HH:mm}; the last known price is held after that.");
 
-            store.Save(DayProjector.Build(input, realised, forecastUntil, load.DaysUsed, load.Fallback, notes));
+            store.Save(DayProjector.Build(input, realised, forecastUntil, load.DaysUsed, load.Fallback, notes, tomorrowInput));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

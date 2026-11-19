@@ -294,6 +294,11 @@ public class BatteryOptimizerWorker(
         solarSlots.AddRange(await GetSolarSlotsAsync(haClient, solarTomorrowEntity, logger, ct, quiet: true));
         double morningSolarStartHour = Math.Clamp(config.GetValue("Optimizer:MorningSolarStartHour", SocPlanner.DefaultMorningSolarStartHour), 6, 10);
 
+        var tomorrowFeedIn = await ReadPriceForecastAsync(haClient, feedInEntity, ct);
+        var tomorrowImport = await ReadPriceForecastAsync(haClient, generalEntity, ct);
+        var tomorrowOutlook = TomorrowOutlook.Build(DateTime.Now, solarSlots, tomorrowFeedIn, tomorrowImport, DaytimeLoadKw, batteryCapacityKwh, conservePercent, solarConfidence);
+        solarSummary += " | " + tomorrowOutlook.Text;
+
         var hotWaterFull = AssessFullHotWater(soc, hotWaterTemp, currentImportState, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, conservePercent);
 
         double exportPowerKw = config.GetValue("Optimizer:ExportPowerLimitKw", 5.0);
@@ -710,6 +715,22 @@ public class BatteryOptimizerWorker(
         {
             return "unavailable";
         }
+    }
+
+    private static async Task<List<PricePoint>> ReadPriceForecastAsync(HttpClient client, string entityId, CancellationToken ct)
+    {
+        try
+        {
+            var json = await client.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
+            if (json.TryGetProperty("attributes", out var attrs) && TelemetryReader.ParseForecast(attrs, DateTimeOffset.Now, 48) is { } forecast)
+                return forecast.Select(p => new PricePoint(p.Time, p.Price)).ToList();
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            // The outlook is optional context; the decision continues without it.
+        }
+
+        return new List<PricePoint>();
     }
 
     private static async Task<string> GetCompactAmberForecastAsync(HttpClient client, string entityId, int hoursAhead, CancellationToken ct)
@@ -1306,6 +1327,8 @@ public class BatteryOptimizerWorker(
                 - effective_sell_floor = {{effectiveSellFloor}}
                 - conserve_soc_at_6am = {{conserveSoc}}
                 An export that has started continues until the feed-in price falls below export_price - export_price_hysteresis (effective_sell_floor), so judge Tests B and C against effective_sell_floor for energy already being sold, and against suggested_export_price for starting a sale.
+
+                The Solar Forecast line ends with a Tomorrow outlook (Solcast, Amber prices and whether tomorrow's solar can refill the battery from conserve_soc_at_6am). If it says solar will refill the battery, selling surplus tonight has little downside; if not, only sell tonight when the price clearly beats what buying back would cost tomorrow.
 
                 Select thresholds that maximize realistic net profit while protecting household energy availability and avoiding unprofitable battery cycling.
                 """;
