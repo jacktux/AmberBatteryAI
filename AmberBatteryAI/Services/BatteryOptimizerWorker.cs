@@ -309,8 +309,10 @@ public class BatteryOptimizerWorker(
 
         double exportPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportPriceHysteresisEntity"] ?? "input_number.export_price_hysteresis", DefaultExportPriceHysteresis, ct);
         double? homeLoadWatts = telemetrySample.HomePowerW ?? ParseWatts(homePower);
+        var car = await evGrab.ReadStatusAsync(haClient, ct);
         if (telemetrySample.EvPowerW is > 200)
             homePower += $" (includes car charging {telemetrySample.EvPowerW.Value / 1000:0.0} kW)";
+        homePower += car.PromptText();
 
         var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, ct);
         string exportPriceHysteresisText = F(exportPriceHysteresis);
@@ -364,7 +366,11 @@ public class BatteryOptimizerWorker(
                 ExportSocHysteresis = exportSocHysteresis,
                 ImportSocHysteresis = importSocHysteresis,
                 AverageLoadKw = avgLoadKw,
-                EvPowerW = telemetrySample.EvPowerW
+                EvPowerW = telemetrySample.EvPowerW,
+                EvSoc = car.SocPercent,
+                EvLimit = car.LimitPercent,
+                EvNeedKwh = car.NeedKwh,
+                EvPriority = car.PriorityText
             }
         };
 
@@ -601,6 +607,7 @@ public class BatteryOptimizerWorker(
             telemetrySample.FeedInPrice ?? 1,
             remainingSolarKwh > 1.0,
             Math.Max(SocPlanner.HardFloorPercent, conservePercent),
+            car,
             ct);
         if (evResult is not null)
             _pending = entry = entry with

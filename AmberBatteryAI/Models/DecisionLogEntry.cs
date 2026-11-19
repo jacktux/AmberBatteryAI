@@ -57,6 +57,10 @@ public record DecisionComputed
     [JsonPropertyName("import_soc_hysteresis")] public double? ImportSocHysteresis { get; init; }
     [JsonPropertyName("average_load_kw")] public double? AverageLoadKw { get; init; }
     [JsonPropertyName("ev_power_w")] public double? EvPowerW { get; init; }
+    [JsonPropertyName("ev_soc")] public double? EvSoc { get; init; }
+    [JsonPropertyName("ev_limit")] public double? EvLimit { get; init; }
+    [JsonPropertyName("ev_need_kwh")] public double? EvNeedKwh { get; init; }
+    [JsonPropertyName("ev_priority")] public string? EvPriority { get; init; }
     [JsonPropertyName("ev_grab_base")] public double? EvGrabBase { get; init; }
     [JsonPropertyName("ev_grab_applied")] public double? EvGrabApplied { get; init; }
     [JsonPropertyName("ev_grab_reason")] public string? EvGrabReason { get; init; }

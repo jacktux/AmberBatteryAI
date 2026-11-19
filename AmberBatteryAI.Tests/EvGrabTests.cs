@@ -47,4 +47,28 @@ public class EvGrabTests
         Assert.All(LoadProfileBuilder.Build(samples, today, 0.75).Kw, kw => Assert.Equal(1.0, kw, 3));
         Assert.All(LoadProfileBuilder.Build(samples, today, 0.75, subtractEv: false).Kw, kw => Assert.Equal(5.0, kw, 3));
     }
+
+    [Fact]
+    public void MustChargeLowersToTheFloorAndWhenYouCanRaisesAboveBase()
+    {
+        Assert.Equal(30, EvThresholdPlanner.Decide(Input() with { Priority = EvPriority.MustCharge, Hold = true }).Threshold);
+        Assert.Equal(100, EvThresholdPlanner.Decide(Input(basePct: 95) with { Priority = EvPriority.WhenYouCan }).Threshold);
+        Assert.Equal(60, EvThresholdPlanner.Decide(Input(feedIn: 0) with { Priority = EvPriority.WhenYouCan }).Threshold);
+    }
+
+    [Fact]
+    public void CarAtItsLimitKeepsTheUsersValueWhateverThePriority() =>
+        Assert.Equal(90, EvThresholdPlanner.Decide(Input() with { Priority = EvPriority.MustCharge, CarAtLimit = true }).Threshold);
+
+    [Fact]
+    public void CarNeedComesFromSocLimitAndBatterySize()
+    {
+        var car = new EvStatus(40, 80, EvPriority.MustCharge, "Must Charge", 80);
+        Assert.Equal(32, car.NeedKwh);
+        Assert.Contains("needs about 32 kWh", car.PromptText());
+        Assert.True(new EvStatus(80, 80, EvPriority.NiceToHave, "x", 80).AtLimit);
+        Assert.Null(new EvStatus(null, 80, EvPriority.NiceToHave, "x", 80).NeedKwh);
+        Assert.Equal("", new EvStatus(null, null, EvPriority.NiceToHave, "x", 80).PromptText());
+        Assert.Equal(EvPriority.WhenYouCan, EvStatus.ParsePriority("Charge when you can"));
+    }
 }

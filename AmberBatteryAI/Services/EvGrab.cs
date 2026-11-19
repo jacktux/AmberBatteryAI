@@ -6,7 +6,35 @@ using System.Text.Json.Serialization;
 
 namespace AmberBatteryAI.Services;
 
-public record EvGrabInput(double BasePercent, double FloorPercent, bool Hold, double FeedInPrice, bool SolarLeft, double HoldOffsetPercent, double ZeroFeedInPercent);
+public enum EvPriority { NiceToHave, MustCharge, WhenYouCan }
+
+/// <summary>What the car needs: its SOC, the wallbox charge limit and the priority helper. Any value may be unknown.</summary>
+public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Priority, string PriorityText, double BatteryKwh)
+{
+    /// <summary>Energy still needed to reach the charge limit; null when SOC or limit is unknown.</summary>
+    public double? NeedKwh => SocPercent is double s && LimitPercent is double l ? Math.Round(Math.Max(0, l - s) / 100.0 * BatteryKwh, 1) : null;
+    public bool AtLimit => NeedKwh is <= 0;
+
+    public static EvPriority ParsePriority(string? text) => text?.Trim().ToLowerInvariant() switch
+    {
+        "must charge" => EvPriority.MustCharge,
+        "charge when you can" => EvPriority.WhenYouCan,
+        _ => EvPriority.NiceToHave
+    };
+
+    /// <summary>One line for the decision prompt; empty when nothing is known about the car.</summary>
+    public string PromptText()
+    {
+        if (SocPercent is null && LimitPercent is null) return "";
+        string need = NeedKwh is double n ? (n <= 0 ? "the car is at its charge limit" : $"the car still needs about {n:0.#} kWh") : "the car's need is unknown";
+        string soc = SocPercent is double s ? $"SOC {s:0}%" : "SOC unknown";
+        string limit = LimitPercent is double l ? $", limit {l:0}%" : "";
+        return $" (car {soc}{limit}: {need}; priority: {PriorityText})";
+    }
+}
+
+public record EvGrabInput(double BasePercent, double FloorPercent, bool Hold, double FeedInPrice, bool SolarLeft, double HoldOffsetPercent, double ZeroFeedInPercent,
+    EvPriority Priority = EvPriority.NiceToHave, bool CarAtLimit = false);
 
 public record EvGrabDecision(double Threshold, string Reason);
 
@@ -21,6 +49,15 @@ public static class EvThresholdPlanner
     {
         double floor = Math.Clamp(i.FloorPercent, SocPlanner.HardFloorPercent, 100);
         double basePct = Math.Clamp(i.BasePercent, 0, 100);
+
+        if (i.CarAtLimit)
+            return new(basePct, "The car is at its charge limit: your own threshold applies.");
+
+        if (i.Priority == EvPriority.MustCharge)
+            return new(floor, "Must Charge: the car may take energy from the battery down to the floor.");
+
+        if (i.Priority == EvPriority.WhenYouCan && !(i.FeedInPrice <= 0 && i.SolarLeft))
+            return new(Math.Min(100, Math.Max(basePct, floor) + Math.Max(0, i.HoldOffsetPercent)), "Charge when you can: the car only takes solar surplus, the battery comes first.");
 
         if (i.FeedInPrice <= 0 && i.SolarLeft)
             return new(Math.Max(floor, Math.Min(basePct, i.ZeroFeedInPercent)), "Feed-in is zero or negative and solar is still to come: the car may take solar earlier.");
@@ -50,9 +87,37 @@ public class EvGrabService(PromptStorageService promptStorage, IConfiguration co
 
     public bool Enabled => config.GetValue("Ev:Enabled", false);
 
+    /// <summary>Reads the car's SOC, charge limit and priority helper. Empty or missing entities give unknown values; never throws.</summary>
+    public async Task<EvStatus> ReadStatusAsync(HttpClient ha, CancellationToken ct)
+    {
+        async Task<string?> Text(string key, string fallback)
+        {
+            string? entity = config[key] ?? fallback;
+            if (string.IsNullOrWhiteSpace(entity)) return null;
+            try
+            {
+                var json = await ha.GetFromJsonAsync<JsonElement>($"api/states/{entity}", ct);
+                return json.TryGetProperty("state", out var s) ? s.GetString() : null;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogDebug(ex, "Could not read {Entity}.", entity);
+                return null;
+            }
+        }
+
+        double? Number(string? text) => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) ? v : null;
+
+        var soc = Number(await Text("HomeAssistant:EvSocEntity", "sensor.garage_ev3_ev_battery_level"));
+        var limit = Number(await Text("HomeAssistant:EvChargeLimitEntity", "number.garage_ev3_ac_charging_limit"));
+        string? priorityText = await Text("HomeAssistant:EvPriorityEntity", "input_select.ev_charge_priority");
+        bool known = priorityText is not null && !priorityText.Equals("unknown", StringComparison.OrdinalIgnoreCase) && !priorityText.Equals("unavailable", StringComparison.OrdinalIgnoreCase);
+        return new EvStatus(soc, limit, known ? EvStatus.ParsePriority(priorityText) : EvPriority.NiceToHave, known ? priorityText! : "Nice to Have (helper not set)", config.GetValue("Ev:BatteryKwh", 81.0));
+    }
+
     private string Entity => config["HomeAssistant:EvGrabThresholdEntity"] ?? "input_number.ev_solar_grab_threshold";
 
-    public async Task<EvGrabResult?> ApplyAsync(HttpClient ha, bool hold, double feedInPrice, bool solarLeft, double floorPercent, CancellationToken ct)
+    public async Task<EvGrabResult?> ApplyAsync(HttpClient ha, bool hold, double feedInPrice, bool solarLeft, double floorPercent, EvStatus? car, CancellationToken ct)
     {
         if (!Enabled) return await RestoreAsync(ha, ct);
 
@@ -64,7 +129,8 @@ public class EvGrabService(PromptStorageService promptStorage, IConfiguration co
 
             var decision = EvThresholdPlanner.Decide(new EvGrabInput(
                 basePct, floorPercent, hold, feedInPrice, solarLeft,
-                config.GetValue("Ev:HoldOffsetPercent", 10.0), config.GetValue("Ev:ZeroFeedInThresholdPercent", 60.0)));
+                config.GetValue("Ev:HoldOffsetPercent", 10.0), config.GetValue("Ev:ZeroFeedInThresholdPercent", 60.0),
+                car?.Priority ?? EvPriority.NiceToHave, car?.AtLimit ?? false));
 
             double desired = Math.Round(decision.Threshold, 1);
             if (Math.Abs(desired - current) > 0.01 && !await WriteAsync(ha, desired, ct)) return null;

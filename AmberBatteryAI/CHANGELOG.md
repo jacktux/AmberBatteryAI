@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.0 (2026-11-19)
+
+### Added
+- Car need and priority. The add-on reads the car's SOC (`ev_soc_entity`, default `sensor.garage_ev3_ev_battery_level`), the wallbox charge limit (`ev_charge_limit_entity`, default `number.garage_ev3_ac_charging_limit`) and an `input_select.ev_charge_priority` helper (Must Charge / Nice to Have / Charge when you can; `ev_priority_entity`). The energy the car still needs uses `ev_battery_kwh` (default 81). The prompt's home-power line shows the car's SOC, limit, need and priority, and the decision log records `ev_soc`, `ev_limit`, `ev_need_kwh`, `ev_priority`.
+- With `ev_control_enabled` on, the priority steers the solar-grab threshold: Must Charge lowers it to the floor (the higher of 20% and the conserve target); Charge when you can raises it by the hold offset so the car only takes solar surplus (except at zero feed-in with solar to come); Nice to Have is unchanged; a car at its limit always keeps your own value.
+
+### Notes
+- A missing helper counts as Nice to Have, so nothing changes until you create it. The prompt change is a short text addition; no placeholder is added.
+
 ## 1.9.0 (2026-11-19)
 
 ### Added
