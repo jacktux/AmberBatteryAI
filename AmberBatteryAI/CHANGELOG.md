@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.11.1 (2026-11-19)
+
+### Fixed
+- While the look-ahead said HOLD (export_price above the live feed-in) the export limit dropped to the 1000 W minimum, so a price that arrived early or unforecast started selling at 1000 W until the next run. The limit is now sized for the moment the live price reaches export_price: the ramp allocation of the best slot(s) at or above export_price (or, when none, the surplus sold in one half-hour), plus house load, clamped to 1000 W..maximum. Tiny surpluses and no-window cases still give 1000 W; behaviour when the threshold is already met is unchanged.
+
 ## 1.11.0 (2026-11-19)
 
 ### Changed

@@ -227,6 +227,38 @@ public class ExportPricePlannerTests
         Assert.Equal(9500, ramp.LimitWatts);
     }
 
+    private static ExportPricePlanner.ExportRamp Hold(IReadOnlyList<ExportPricePlanner.Slot> slots, double live, double surplus, double exportPrice, double load = 0) =>
+        ExportPricePlanner.SuggestExportRamp(slots, Six, live, surplus, exportPrice - 0.02, 15000, load, 0.5, exportPrice);
+
+    [Fact]
+    public void HoldWithALaterSpikeIsSizedForTheSpikeSlotNotTheMinimum()
+    {
+        var ramp = Hold(Later(0.20, 0.70, 0.20), 0.20, 5, 0.68);
+        Assert.Equal(9500, ramp.LimitWatts);
+        Assert.Equal(0, ramp.CurrentKwh);
+    }
+
+    [Fact]
+    public void EarlyArrivalOfThePriceStillGetsFullPowerForABigSurplus() =>
+        Assert.Equal(15000, Hold(Later(0.20, 0.70, 0.70), 0.20, 12, 0.68, load: 1000).LimitWatts);
+
+    [Fact]
+    public void ThresholdAboveEveryForecastSlotIsSizedAsOneSlotSale() =>
+        Assert.Equal(9500, Hold(Later(0.20, 0.30), 0.20, 5, 0.68).LimitWatts);
+
+    [Fact]
+    public void HoldWithTinySurplusStaysAtTheMinimum() =>
+        Assert.Equal(1000, Hold(Later(0.20, 0.70), 0.20, 0.2, 0.68).LimitWatts);
+
+    [Fact]
+    public void NoLaterSlotsMeansNoArrivalSizing() =>
+        Assert.Equal(1000, Hold(new List<ExportPricePlanner.Slot>(), 0.20, 5, 0.68).LimitWatts);
+
+    [Fact]
+    public void ThresholdAlreadyMetKeepsTheRampBehaviour() =>
+        Assert.Equal(Ramp(Later(0.20, 0.20), 0.50, 5).LimitWatts,
+            ExportPricePlanner.SuggestExportRamp(Later(0.20, 0.20), Six, 0.50, 5, 0.10, 15000, 0, 0.5, 0.45).LimitWatts);
+
     [Fact]
     public void ExtremeSpikeUsesTheFullMaximum() =>
         Assert.Equal(15000, Ramp(Later(0.20), 1.50, 1, load: 3000).LimitWatts);

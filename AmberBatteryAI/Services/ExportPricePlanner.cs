@@ -192,7 +192,7 @@ public static class ExportPricePlanner
     /// discharge, of which the grid export is the part above the load.
     /// </summary>
     public static ExportRamp SuggestExportRamp(IReadOnlyList<Slot> slots, DateTimeOffset now, double? livePrice, double surplusKwh, double sellFloor,
-        double maxWatts, double? homeLoadWatts, double coverHours = RampSlotHours)
+        double maxWatts, double? homeLoadWatts, double coverHours = RampSlotHours, double? exportPrice = null)
     {
         double max = Math.Max(maxWatts, MinExportWatts);
         double load = homeLoadWatts is double h && double.IsFinite(h) ? Math.Max(0, h) : 0;
@@ -240,10 +240,24 @@ public static class ExportPricePlanner
             if (allocation.TryGetValue(i, out double kwh)) worstWatts = Math.Max(worstWatts, kwh / RampSlotHours * 1000 + load);
         }
 
+        // The automation starts selling the moment live feed-in reaches export_price and the limit is only rewritten
+        // at the next run, so while the threshold is not yet met size the limit for the slot that price would trigger.
+        bool arrival = false;
+        if (exportPrice is double ep && livePrice is double lp && lp < ep && candidates.Count > 1)
+        {
+            double arrivalWatts = 0;
+            for (int i = 1; i < candidates.Count; i++)
+                if (candidates[i].Price >= ep && allocation.TryGetValue(i, out double kwh))
+                    arrivalWatts = Math.Max(arrivalWatts, kwh / RampSlotHours * 1000 + load);
+            if (arrivalWatts <= 0) arrivalWatts = Math.Min(surplusKwh * DischargeEfficiency, exportCap) / RampSlotHours * 1000 + load;
+            if (arrivalWatts > worstWatts) { worstWatts = arrivalWatts; arrival = true; }
+        }
+
         int limit = worstWatts > 0 ? Clamp(worstWatts) : (int)MinExportWatts;
         int used = allocation.Count;
         string text = currentKwh > 0
             ? $"current slot is one of the {used} best-priced slots and carries {currentKwh:0.##} kWh"
+            : arrival ? "sized for the moment the live price reaches export_price"
             : worstWatts > 0 ? "export starts later in this run interval" : $"better slots come later ({used} slot(s) carry the surplus)";
         return new ExportRamp(limit, Math.Round(currentKwh, 2), text);
     }

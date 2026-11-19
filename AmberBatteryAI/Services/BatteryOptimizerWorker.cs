@@ -1000,7 +1000,7 @@ public class BatteryOptimizerWorker(
             double? livePrice = double.TryParse(json.TryGetProperty("state", out var st) ? st.GetString() : null, NumberStyles.Float, CultureInfo.InvariantCulture, out double lp) ? lp : null;
             var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw, livePrice, sellableKwh);
             double threshold = ExportPricePlanner.ApplyLookAhead(suggested.Value, look, livePrice, plannerSlots.Max(s => s.Value), exportPriceHysteresis);
-            var ramp = ExportPricePlanner.SuggestExportRamp(plannerSlots, now, livePrice, surplusKwh, ExportPricePlanner.EffectiveSellFloor(threshold, exportPriceHysteresis), maxExportWatts, homeLoadWatts, coverHours);
+            var ramp = ExportPricePlanner.SuggestExportRamp(plannerSlots, now, livePrice, surplusKwh, ExportPricePlanner.EffectiveSellFloor(threshold, exportPriceHysteresis), maxExportWatts, homeLoadWatts, coverHours, threshold);
             int powerLimit = ramp.LimitWatts;
 
             // Windows are 30-minute averages, so a single 5-minute blip is not reported as the best window.
