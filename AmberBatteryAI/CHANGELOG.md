@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.0 (2026-11-19)
+
+### Changed
+- Price-ranked discharge ramp. `suggested_export_power_limit` is no longer capped at 5 kW (10 kW in a spike). The remaining half-hours are ranked by forecast feed-in price (live price for the current slot, 30-minute smoothing and horizon discount for later ones; slots below `effective_sell_floor` get nothing) and the surplus above `floor_kWh` (x0.95 discharge efficiency) is given to the best slots first at up to the maximum discharge power. The limit is the power the current slot (or any slot starting before the next run) needs, plus house load, rounded up to 500 W and clamped to 1000 W..maximum. It ramps up in top-priced slots and drops to 1000 W when better slots come later.
+- New option `max_export_power_watts` (`Optimizer:MaxExportPowerW`, default 15000, 1000-30000) replaces the fixed caps and the old `Optimizer:ExportPowerLimitKw`. The suggested export price and look-ahead capacity use it too, so large surpluses can give a higher price than before.
+- Prompt wording only (no new placeholder): rule 7 now says the limit ramps by price up to the maximum discharge power.
+
+### Notes
+- A live feed-in above $1.00 still gives the maximum power and the 22% stop SOC. The import limit still uses `max_power_watts`.
+
 ## 1.10.0 (2026-11-19)
 
 ### Added

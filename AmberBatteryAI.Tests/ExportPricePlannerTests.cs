@@ -152,15 +152,88 @@ public class ExportPricePlannerTests
         Assert.True(ExportPricePlanner.ApplyLookAhead(0.05, look, 0.11, 0.30) >= 0.115);
     }
 
-    [Theory]
-    [InlineData(1.20, 5, 2.0, 10000)]
-    [InlineData(0.10, 5, 2.0, 2500)]
-    [InlineData(0.10, 3.3, 2.0, 2000)]
-    [InlineData(0.10, 5, 0.5, 5000)]
-    [InlineData(0.10, 0.2, 2.0, 1000)]
-    [InlineData(0.10, 5, 0, 5000)]
-    public void ExportPowerLimitSpreadsSurplusOverTheWindow(double live, double surplus, double hours, int expected) =>
-        Assert.Equal(expected, ExportPricePlanner.SuggestExportPowerLimit(live, surplus, hours));
+    private static readonly DateTimeOffset Six = At(18, 0);
+
+    // Half-hour slots from 18:30; the first value is the 18:30 price.
+    private static List<ExportPricePlanner.Slot> Later(params double[] prices) =>
+        prices.Select((p, i) => new ExportPricePlanner.Slot(At(18, 30).AddMinutes(30 * i), p)).ToList();
+
+    private static ExportPricePlanner.ExportRamp Ramp(IReadOnlyList<ExportPricePlanner.Slot> slots, double live, double surplus, double load = 0, double floor = 0.10, DateTimeOffset? now = null, double max = 15000) =>
+        ExportPricePlanner.SuggestExportRamp(slots, now ?? Six, live, surplus, floor, max, load);
+
+    [Fact]
+    public void FlatPricesSellNowAtFullPowerBecauseTiesGoToTheEarlierSlot()
+    {
+        var ramp = Ramp(Later(0.20, 0.20, 0.20), 0.20, 10);
+        Assert.Equal(15000, ramp.LimitWatts);
+        Assert.Equal(7.5, ramp.CurrentKwh, 2);
+    }
+
+    [Fact]
+    public void BiggerPriceLaterGivesTheSurplusToThatSlotAndTheCurrentSlotIdles()
+    {
+        var ramp = Ramp(Later(0.20, 1.00, 0.20), 0.20, 5);
+        Assert.Equal(0, ramp.CurrentKwh);
+        Assert.Equal((int)ExportPricePlanner.MinExportWatts, ramp.LimitWatts);
+    }
+
+    [Fact]
+    public void LowerPriceLaterTakesTheWholeSurplusNowAtTheRateItNeeds()
+    {
+        var ramp = Ramp(Later(0.20, 0.20), 0.50, 5);
+        Assert.Equal(9500, ramp.LimitWatts); // 5 kWh x 0.95 over half an hour
+        Assert.Equal(4.75, ramp.CurrentKwh, 2);
+    }
+
+    [Fact]
+    public void SurplusBeyondOneSlotSpillsIntoTheNextBestSlot()
+    {
+        var ramp = Ramp(Later(0.40, 0.20), 0.50, 12);
+        Assert.Equal(15000, ramp.LimitWatts);
+        Assert.Equal(7.5, ramp.CurrentKwh, 2);
+    }
+
+    [Fact]
+    public void TinySurplusUsesTheMinimumPracticalPower()
+    {
+        var ramp = Ramp(Later(0.20), 0.50, 0.2);
+        Assert.Equal(1000, ramp.LimitWatts);
+        Assert.Equal(0.19, ramp.CurrentKwh, 2);
+    }
+
+    [Fact]
+    public void HouseLoadIsAddedBecauseTheLimitIsADischargeLimit()
+    {
+        Assert.Equal(11500, Ramp(Later(0.20), 0.50, 5, load: 2000).LimitWatts);
+        // The load also takes room from the maximum: 12 kW of export fits beside 3 kW of load.
+        Assert.Equal(15000, Ramp(Later(0.20), 0.50, 20, load: 3000).LimitWatts);
+    }
+
+    [Fact]
+    public void SlotsBelowTheSellFloorGetNothing()
+    {
+        var ramp = Ramp(Later(0.30), 0.05, 5);
+        Assert.Equal(0, ramp.CurrentKwh);
+        Assert.Equal(9500, Ramp(Later(0.05), 0.20, 5).LimitWatts);
+        Assert.Equal(1000, Ramp(Later(0.05), 0.05, 5).LimitWatts);
+    }
+
+    [Fact]
+    public void ASlotStartingBeforeTheNextRunIsNotStarved()
+    {
+        // 18:12 now: the 18:30 slot starts inside this 30-minute run interval and has the best price.
+        var ramp = Ramp(Later(1.00, 0.20), 0.20, 5, now: At(18, 12));
+        Assert.Equal(0, ramp.CurrentKwh);
+        Assert.Equal(9500, ramp.LimitWatts);
+    }
+
+    [Fact]
+    public void ExtremeSpikeUsesTheFullMaximum() =>
+        Assert.Equal(15000, Ramp(Later(0.20), 1.50, 1, load: 3000).LimitWatts);
+
+    [Fact]
+    public void MaximumIsConfigurable() =>
+        Assert.Equal(8000, Ramp(Later(0.20), 0.50, 20, max: 8000).LimitWatts);
 }
 
 public class ExportAutomationAlignmentTests
@@ -187,19 +260,4 @@ public class ExportAutomationAlignmentTests
     [Fact]
     public void EffectiveSellFloorIsPriceMinusHysteresis() =>
         Assert.Equal(0.098, ExportPricePlanner.EffectiveSellFloor(0.118, 0.02), 3);
-
-    [Theory]
-    [InlineData(null, 5000)]   // no load: 5 kWh over 2 h = 2500 W
-    [InlineData(0.0, 2500)]
-    [InlineData(1200.0, 4000)] // 2500 + 1200 -> 3700 -> 4000
-    [InlineData(4000.0, 5000)] // capped
-    public void PowerLimitAddsHomeLoad(double? load, int expected)
-    {
-        int limit = ExportPricePlanner.SuggestExportPowerLimit(0.10, 5, 2.0, load);
-        Assert.Equal(load is null ? 2500 : expected, limit);
-    }
-
-    [Fact]
-    public void SpikeStillGivesTenKilowattsWhateverTheLoad() =>
-        Assert.Equal(10000, ExportPricePlanner.SuggestExportPowerLimit(1.5, 5, 2.0, 3000));
 }

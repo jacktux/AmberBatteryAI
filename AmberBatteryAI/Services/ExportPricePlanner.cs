@@ -173,23 +173,79 @@ public static class ExportPricePlanner
     }
 
     public const double MinExportWatts = 1000;
-    public const double MaxExportWatts = 5000;
-    public const double SpikeExportWatts = 10000;
+    public const double DefaultMaxExportWatts = 15000;
+    /// <summary>Share of the stored surplus that reaches the grid (square root of the 0.90 round-trip efficiency).</summary>
+    public const double DischargeEfficiency = 0.95;
+    private const double RampSlotHours = 0.5;
+
+    /// <param name="LimitWatts">Battery discharge limit for the coming run interval: planned export plus the house load.</param>
+    /// <param name="CurrentKwh">Export energy allocated to the current half hour.</param>
+    /// <param name="Text">Short explanation for the log.</param>
+    public record ExportRamp(int LimitWatts, double CurrentKwh, string Text);
 
     /// <summary>
-    /// Export power that spreads the surplus over the best window, in 500 W steps within 1000-5000 W.
-    /// A live price above $1.00 allows 10000 W. The limit is a battery discharge limit that also feeds the house, so grid
-    /// export is the limit minus the home load: the house load is added to the wanted export power when it is known.
+    /// Ranks the half-hour slots by forecast feed-in price (live price for the current slot, later slots after the horizon
+    /// discount) and gives the deliverable surplus to the best slots first, up to the maximum discharge power. Slots below
+    /// <paramref name="sellFloor"/> get nothing. The limit covers the whole run interval: the largest power wanted by any
+    /// slot that starts before the next run, so a better slot that begins mid-interval is not starved. Ties go to the
+    /// earlier slot, since a later price may not arrive. The limit includes the house load because it limits the battery
+    /// discharge, of which the grid export is the part above the load.
     /// </summary>
-    public static int SuggestExportPowerLimit(double? livePrice, double surplusKwh, double windowHours, double? homeLoadWatts = null)
+    public static ExportRamp SuggestExportRamp(IReadOnlyList<Slot> slots, DateTimeOffset now, double? livePrice, double surplusKwh, double sellFloor,
+        double maxWatts, double? homeLoadWatts, double coverHours = RampSlotHours)
     {
-        if (livePrice > 1.00) return (int)SpikeExportWatts;
-        if (windowHours <= 0) return (int)MaxExportWatts;
-
-        double exportWatts = Math.Max(surplusKwh, 0) / windowHours * 1000;
+        double max = Math.Max(maxWatts, MinExportWatts);
         double load = homeLoadWatts is double h && double.IsFinite(h) ? Math.Max(0, h) : 0;
-        double watts = Math.Ceiling((exportWatts + load) / 500) * 500;
-        return (int)Math.Clamp(watts, MinExportWatts, MaxExportWatts);
+        int Clamp(double watts) => (int)Math.Clamp(Math.Ceiling(watts / 500) * 500, MinExportWatts, max);
+
+        if (livePrice > ExtremeSpikeDollars) return new ExportRamp((int)max, 0, "live price is an extreme spike: full discharge power");
+
+        var series = new List<Slot>();
+        if (livePrice is double live) series.Add(new Slot(now, live));
+        series.AddRange(slots.Where(s => livePrice is null || s.Time > now));
+        if (series.Count == 0 || surplusKwh <= 0)
+            return new ExportRamp((int)MinExportWatts, 0, "nothing to sell");
+
+        var smooth = Smooth(series);
+        long bucketTicks = TimeSpan.FromMinutes(30).Ticks;
+        long Bucket(DateTimeOffset t) => t.ToLocalTime().DateTime.Ticks / bucketTicks;
+
+        // One candidate per aligned half hour: the current one at the live price, later ones at their 30-minute average.
+        var candidates = new List<(DateTimeOffset Time, double Price, double Ranked)>();
+        candidates.Add((now, series[0].Value, series[0].Value));
+        long currentBucket = Bucket(now);
+        foreach (var s in smooth.Skip(1))
+        {
+            if (Bucket(s.Time) <= currentBucket || candidates.Any(c => Bucket(c.Time) == Bucket(s.Time))) continue;
+            candidates.Add((s.Time, s.Value, s.Value * HorizonFactor((s.Time - now).TotalHours)));
+        }
+
+        double exportCap = Math.Max(0, max - load) / 1000 * RampSlotHours;
+        double left = surplusKwh * DischargeEfficiency;
+        var allocation = new Dictionary<int, double>();
+        var order = candidates.Select((c, i) => (c, i)).Where(x => x.c.Price >= sellFloor)
+            .OrderByDescending(x => x.c.Ranked).ThenBy(x => x.c.Time);
+        foreach (var (c, i) in order)
+        {
+            if (left <= 0) break;
+            double take = Math.Min(left, exportCap);
+            allocation[i] = take;
+            left -= take;
+        }
+
+        double worstWatts = 0, currentKwh = allocation.GetValueOrDefault(0);
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            if (i > 0 && (candidates[i].Time - now).TotalHours >= coverHours - 1e-9) break;
+            if (allocation.TryGetValue(i, out double kwh)) worstWatts = Math.Max(worstWatts, kwh / RampSlotHours * 1000 + load);
+        }
+
+        int limit = worstWatts > 0 ? Clamp(worstWatts) : (int)MinExportWatts;
+        int used = allocation.Count;
+        string text = currentKwh > 0
+            ? $"current slot is one of the {used} best-priced slots and carries {currentKwh:0.##} kWh"
+            : worstWatts > 0 ? "export starts later in this run interval" : $"better slots come later ({used} slot(s) carry the surplus)";
+        return new ExportRamp(limit, Math.Round(currentKwh, 2), text);
     }
 
     /// <returns>The suggested export price, or null when there are no usable slots.</returns>
