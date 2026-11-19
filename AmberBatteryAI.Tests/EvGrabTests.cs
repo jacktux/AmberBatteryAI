@@ -71,4 +71,30 @@ public class EvGrabTests
         Assert.Equal("", new EvStatus(null, null, EvPriority.NiceToHave, "x", 80).PromptText());
         Assert.Equal(EvPriority.WhenYouCan, EvStatus.ParsePriority("Charge when you can"));
     }
+
+    [Fact]
+    public void PluggedCarCountsItsNeed()
+    {
+        var car = new EvStatus(40, 80, EvPriority.MustCharge, "Must Charge", 80, true);
+        Assert.Equal(32, car.NeedKwh);
+        Assert.False(car.AtLimit);
+    }
+
+    [Fact]
+    public void UnpluggedCarNeedsNothingAndSaysSo()
+    {
+        var car = new EvStatus(40, 80, EvPriority.MustCharge, "Must Charge", 80, false);
+        Assert.Equal(0, car.NeedKwh);
+        Assert.True(car.AtLimit);
+        Assert.Contains("not plugged in", car.PromptText());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    public void UnknownOrDisabledPlugKeepsTheOldNeed(bool? plugged)
+    {
+        var car = new EvStatus(40, 80, EvPriority.NiceToHave, "x", 80, plugged);
+        Assert.Equal(32, car.NeedKwh);
+        Assert.DoesNotContain("not plugged in", car.PromptText());
+    }
 }

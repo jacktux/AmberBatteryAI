@@ -370,6 +370,7 @@ public class BatteryOptimizerWorker(
                 EvPowerW = telemetrySample.EvPowerW,
                 EvSoc = car.SocPercent,
                 EvLimit = car.LimitPercent,
+                EvPluggedIn = car.Plugged,
                 EvNeedKwh = car.NeedKwh,
                 EvPriority = car.PriorityText
             }

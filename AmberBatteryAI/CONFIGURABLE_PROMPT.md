@@ -217,4 +217,6 @@ The prompt is stored in a simple JSON file:
 
 ## Tomorrow outlook
 
+`{{homePower}}` shows "car not plugged in" when the optional car plug sensor (`ev_plugged_in_entity`) says off; no placeholder or rule wording changes.
+
 `{{solarSummary}}` now ends with a "Tomorrow outlook" text: Solcast energy and peak for tomorrow, the Amber feed-in/import means and best times for tomorrow, and whether tomorrow's solar (after the house load, haircut and `SolarConfidence`) can refill the battery from the `conserve_soc_at_6am` target. No new placeholder is needed; custom prompts receive it through `{{solarSummary}}`.

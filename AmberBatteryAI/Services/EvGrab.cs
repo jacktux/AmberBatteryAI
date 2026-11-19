@@ -9,10 +9,11 @@ namespace AmberBatteryAI.Services;
 public enum EvPriority { NiceToHave, MustCharge, WhenYouCan }
 
 /// <summary>What the car needs: its SOC, the wallbox charge limit and the priority helper. Any value may be unknown.</summary>
-public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Priority, string PriorityText, double BatteryKwh)
+public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Priority, string PriorityText, double BatteryKwh, bool? Plugged = null)
 {
     /// <summary>Energy still needed to reach the charge limit; null when SOC or limit is unknown.</summary>
-    public double? NeedKwh => SocPercent is double s && LimitPercent is double l ? Math.Round(Math.Max(0, l - s) / 100.0 * BatteryKwh, 1) : null;
+    /// <summary>Plugged is false only when the plug sensor says the car is not connected: then it needs nothing.</summary>
+    public double? NeedKwh => Plugged == false ? 0 : SocPercent is double s && LimitPercent is double l ? Math.Round(Math.Max(0, l - s) / 100.0 * BatteryKwh, 1) : null;
     public bool AtLimit => NeedKwh is <= 0;
 
     public static EvPriority ParsePriority(string? text) => text?.Trim().ToLowerInvariant() switch
@@ -25,6 +26,7 @@ public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Prio
     /// <summary>One line for the decision prompt; empty when nothing is known about the car.</summary>
     public string PromptText()
     {
+        if (Plugged == false) return " (car not plugged in: no car need counted)";
         if (SocPercent is null && LimitPercent is null) return "";
         string need = NeedKwh is double n ? (n <= 0 ? "the car is at its charge limit" : $"the car still needs about {n:0.#} kWh") : "the car's need is unknown";
         string soc = SocPercent is double s ? $"SOC {s:0}%" : "SOC unknown";
@@ -112,7 +114,15 @@ public class EvGrabService(PromptStorageService promptStorage, IConfiguration co
         var limit = Number(await Text("HomeAssistant:EvChargeLimitEntity", "number.garage_ev3_ac_charging_limit"));
         string? priorityText = await Text("HomeAssistant:EvPriorityEntity", "input_select.ev_charge_priority");
         bool known = priorityText is not null && !priorityText.Equals("unknown", StringComparison.OrdinalIgnoreCase) && !priorityText.Equals("unavailable", StringComparison.OrdinalIgnoreCase);
-        return new EvStatus(soc, limit, known ? EvStatus.ParsePriority(priorityText) : EvPriority.NiceToHave, known ? priorityText! : "Nice to Have (helper not set)", config.GetValue("Ev:BatteryKwh", 81.0));
+        bool? plugged = null;
+        string? plug = await Text("HomeAssistant:EvPluggedInEntity", "binary_sensor.garage_ev3_ev_battery_plug");
+        if (plug is not null)
+        {
+            if (plug.Equals("on", StringComparison.OrdinalIgnoreCase)) plugged = true;
+            else if (plug.Equals("off", StringComparison.OrdinalIgnoreCase)) plugged = false;
+            else logger.LogInformation("Car plug sensor is {State}: counting the car's need as before.", plug);
+        }
+        return new EvStatus(soc, limit, known ? EvStatus.ParsePriority(priorityText) : EvPriority.NiceToHave, known ? priorityText! : "Nice to Have (helper not set)", config.GetValue("Ev:BatteryKwh", 81.0), plugged);
     }
 
     private string Entity => config["HomeAssistant:EvGrabThresholdEntity"] ?? "input_number.ev_solar_grab_threshold";

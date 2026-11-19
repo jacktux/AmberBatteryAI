@@ -59,6 +59,7 @@ public record DecisionComputed
     [JsonPropertyName("ev_power_w")] public double? EvPowerW { get; init; }
     [JsonPropertyName("ev_soc")] public double? EvSoc { get; init; }
     [JsonPropertyName("ev_limit")] public double? EvLimit { get; init; }
+    [JsonPropertyName("ev_plugged_in")] public bool? EvPluggedIn { get; init; }
     [JsonPropertyName("ev_need_kwh")] public double? EvNeedKwh { get; init; }
     [JsonPropertyName("ev_priority")] public string? EvPriority { get; init; }
     [JsonPropertyName("ev_grab_base")] public double? EvGrabBase { get; init; }

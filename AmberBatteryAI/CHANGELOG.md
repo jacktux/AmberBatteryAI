@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.1 (2026-11-19)
+
+### Added
+- Car plug sensor: new option `ev_plugged_in_entity` (default `binary_sensor.garage_ev3_ev_battery_plug`, empty = off). When it reads `off` the car's need counts as 0, the prompt's home-power text says "car not plugged in" and the EV threshold control uses your own value. `on`, unavailable or unknown keep the old behaviour (unknown is logged). New `ev_plugged_in` field in the decision log. Prompt wording is unchanged.
+
 ## 1.12.0
 
 ### Added

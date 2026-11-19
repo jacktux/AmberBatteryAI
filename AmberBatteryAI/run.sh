@@ -56,6 +56,7 @@ if [ -f "$OPTIONS_FILE" ]; then
   export HomeAssistant__EvSocEntity=$(jq -r '.ev_soc_entity // "sensor.garage_ev3_ev_battery_level"' "$OPTIONS_FILE")
   export HomeAssistant__EvChargeLimitEntity=$(jq -r '.ev_charge_limit_entity // "number.garage_ev3_ac_charging_limit"' "$OPTIONS_FILE")
   export HomeAssistant__EvPriorityEntity=$(jq -r '.ev_priority_entity // "input_select.ev_charge_priority"' "$OPTIONS_FILE")
+  export HomeAssistant__EvPluggedInEntity=$(jq -r 'if .ev_plugged_in_entity == null then "binary_sensor.garage_ev3_ev_battery_plug" else .ev_plugged_in_entity end' "$OPTIONS_FILE")
   export Ev__BatteryKwh=$(jq -r '.ev_battery_kwh // 81' "$OPTIONS_FILE")
 fi
 
