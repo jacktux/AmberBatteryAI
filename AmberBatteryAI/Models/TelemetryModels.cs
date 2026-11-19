@@ -12,6 +12,7 @@ public record TelemetrySample
     [JsonPropertyName("soc_percent")] public double? SocPercent { get; init; }
     [JsonPropertyName("battery_power_w")] public double? BatteryPowerW { get; init; }
     [JsonPropertyName("home_power_w")] public double? HomePowerW { get; init; }
+    [JsonPropertyName("ev_power_w")] public double? EvPowerW { get; init; }
     [JsonPropertyName("solar_power_w")] public double? SolarPowerW { get; init; }
     [JsonPropertyName("grid_power_w")] public double? GridPowerW { get; init; }
     [JsonPropertyName("grid_import_w")] public double? GridImportW { get; init; }

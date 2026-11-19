@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.0 (2026-11-19)
+
+### Added
+- Car charging awareness. The add-on reads the wallbox power (`ev_power_entity`, default `sensor.wattpilot_charging_power`; empty to turn off) and records it in the telemetry samples and decision log (`ev_power_w`). While the car draws more than 200 W the prompt's house-load line says "(includes car charging X kW)" (no new placeholder, so custom prompts need no edits). Car power is taken out of the 7-day house-load profile used by the day projection, so a charging session does not inflate it (`ev_subtract_from_load`, default on; turn it off if your home-power sensor does not include the wallbox). The projection does not forecast car charging.
+- Optional control of the Node-RED car flow's solar-grab threshold (`ev_control_enabled`, default off). The flow starts taking energy from the battery at `input_number.ev_solar_grab_threshold`; with this on, your value stays the base and the add-on only changes it while it matters: it adds `ev_hold_offset_percent` (default 10, up to 100%) while the look-ahead says HOLD or a discharge is planned with feed-in at or above `ev_hold_feed_in_price` (default $0.15), and lowers it to `ev_zero_feed_in_threshold_percent` (default 60, never above your value) when feed-in is zero or negative and solar is still to come. It never goes below the conserve target or 20%. If you edit the helper yourself the new value becomes the base. Turning the option off or the master switch off puts your value back. The change is shown on the Decisions page and logged (`ev_grab_*`).
+
+### Notes
+- Nothing else about trading changes. The flow's own export boost (maximum amps while exporting) still ignores prices.
+- No prompt change; saved custom prompts need no edits.
+
 ## 1.7.1 (2026-11-19)
 
 ### Added

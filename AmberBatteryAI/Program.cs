@@ -11,6 +11,7 @@ builder.Services.AddSingleton<DecisionHistoryService>();
 builder.Services.AddSingleton<TelemetryReader>();
 builder.Services.AddSingleton<TelemetryHistoryService>();
 builder.Services.AddSingleton<ProjectionStore>();
+builder.Services.AddSingleton<EvGrabService>();
 builder.Services.AddSingleton<DayProjectionService>();
 builder.Services.AddHostedService<TelemetrySampler>();
 builder.Services.AddSingleton<OptimizerState>();

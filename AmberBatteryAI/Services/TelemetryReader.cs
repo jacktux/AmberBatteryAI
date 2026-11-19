@@ -46,6 +46,7 @@ public class TelemetryReader(IHttpClientFactory httpClientFactory, IConfiguratio
             SocPercent = await ReadNumberAsync(client, config["HomeAssistant:BatterySocEntity"] ?? "sensor.la_electrical_battery_soc", ct),
             BatteryPowerW = await ReadWattsAsync(client, config["HomeAssistant:BatteryPowerEntity"] ?? "sensor.la_electrical_battery_power", ct),
             HomePowerW = await ReadWattsAsync(client, config["HomeAssistant:HomePowerEntity"] ?? "sensor.la_sigenstor1_home_power", ct),
+            EvPowerW = string.IsNullOrWhiteSpace(config["HomeAssistant:EvPowerEntity"] ?? "sensor.wattpilot_charging_power") ? null : await ReadWattsAsync(client, config["HomeAssistant:EvPowerEntity"] ?? "sensor.wattpilot_charging_power", ct),
             SolarPowerW = await ReadWattsAsync(client, config["HomeAssistant:SolarPowerEntity"] ?? "sensor.la_sigenstor1_solar_power", ct),
             GridPowerW = gridRaw,
             GridImportW = gridImport,

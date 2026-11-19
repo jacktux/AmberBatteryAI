@@ -56,6 +56,10 @@ public record DecisionComputed
     [JsonPropertyName("export_soc_hysteresis")] public double? ExportSocHysteresis { get; init; }
     [JsonPropertyName("import_soc_hysteresis")] public double? ImportSocHysteresis { get; init; }
     [JsonPropertyName("average_load_kw")] public double? AverageLoadKw { get; init; }
+    [JsonPropertyName("ev_power_w")] public double? EvPowerW { get; init; }
+    [JsonPropertyName("ev_grab_base")] public double? EvGrabBase { get; init; }
+    [JsonPropertyName("ev_grab_applied")] public double? EvGrabApplied { get; init; }
+    [JsonPropertyName("ev_grab_reason")] public string? EvGrabReason { get; init; }
 }
 
 /// <summary>The values written to Home Assistant after code overrides and limits were applied.</summary>

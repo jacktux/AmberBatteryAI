@@ -50,7 +50,9 @@
                 for (const e of entries) {
                     const a = e.applied;
                     const result = e.outcome === 'applied' && e.ai_response ? e.ai_response.mode : e.outcome;
-                    const notes = (e.overrides || []).concat(e.note ? [e.note] : []).join('; ');
+                    const ev = e.computed && e.computed.ev_grab_applied != null && e.computed.ev_grab_applied !== e.computed.ev_grab_base
+                    ? ['Car solar-grab threshold ' + e.computed.ev_grab_base + '% -> ' + e.computed.ev_grab_applied + '% (' + e.computed.ev_grab_reason + ')'] : [];
+                    const notes = (e.overrides || []).concat(ev, e.note ? [e.note] : []).join('; ');
                     const cells = [
                         new Date(e.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
                         result,
