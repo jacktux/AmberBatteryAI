@@ -213,3 +213,8 @@ The prompt is stored in a simple JSON file:
 - Storage file location is shown above
 - Check app logs if file fails to load/save due to permissions
 
+
+
+## Tomorrow outlook
+
+`{{solarSummary}}` now ends with a "Tomorrow outlook" text: Solcast energy and peak for tomorrow, the Amber feed-in/import means and best times for tomorrow, and whether tomorrow's solar (after the house load, haircut and `SolarConfidence`) can refill the battery from the `conserve_soc_at_6am` target. No new placeholder is needed; custom prompts receive it through `{{solarSummary}}`.

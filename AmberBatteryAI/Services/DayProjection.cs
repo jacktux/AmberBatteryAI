@@ -79,6 +79,7 @@ public record DayProjection
     [JsonPropertyName("day_total")] public ProjectionTotals DayTotal { get; init; } = new();
     [JsonPropertyName("hourly")] public List<HourlyProjection> Hourly { get; init; } = new();
     [JsonPropertyName("range")] public ProjectionRange Range { get; init; } = new();
+    [JsonPropertyName("tomorrow")] public TomorrowProjection? Tomorrow { get; init; }
     [JsonPropertyName("assumptions")] public ProjectionAssumptions Assumptions { get; init; } = new();
 }
 
@@ -153,11 +154,64 @@ public record ProjectionInput
     /// <summary>Solar multiplier for the low case when Solcast gives no 10th percentile estimate.</summary>
     public double SolarConfidence { get; init; } = 0.6;
     public ForecastBiasReport? Bias { get; init; }
+    /// <summary>Where the simulation stops; the next midnight when null.</summary>
+    public DateTimeOffset? End { get; init; }
 }
 
 public enum ProjectionScenario { Base, Low, High }
 
-public record SimulationResult(ProjectionTotals Totals, double EndSocPercent, double LoadKwh, double SolarKwh, double[] HourImportKwh, double[] HourExportKwh);
+public record SimulationResult(ProjectionTotals Totals, double EndSocPercent, double LoadKwh, double SolarKwh, double[] HourImportKwh, double[] HourExportKwh)
+{
+    public double PeakSocPercent { get; init; }
+    public DateTimeOffset? FullAt { get; init; }
+    /// <summary>Solar left over after the house and a full battery (exported or curtailed).</summary>
+    public double SpilledSolarKwh { get; init; }
+    public double[] HourSolarKwh { get; init; } = new double[24];
+    public double[] HourLoadKwh { get; init; } = new double[24];
+    public double[] HourSocPercent { get; init; } = new double[24];
+    public double[] HourImportPrice { get; init; } = new double[24];
+    public double[] HourFeedInPrice { get; init; } = new double[24];
+}
+
+/// <summary>One clock hour of tomorrow: solar, house load, grid flow, battery SOC at the end of the hour and the forecast prices.</summary>
+public record TomorrowHour
+{
+    [JsonPropertyName("hour")] public int Hour { get; init; }
+    [JsonPropertyName("solar_kwh")] public double SolarKwh { get; init; }
+    [JsonPropertyName("load_kwh")] public double LoadKwh { get; init; }
+    [JsonPropertyName("import_kwh")] public double ImportKwh { get; init; }
+    [JsonPropertyName("import_low_kwh")] public double ImportLowKwh { get; init; }
+    [JsonPropertyName("import_high_kwh")] public double ImportHighKwh { get; init; }
+    [JsonPropertyName("export_kwh")] public double ExportKwh { get; init; }
+    [JsonPropertyName("export_low_kwh")] public double ExportLowKwh { get; init; }
+    [JsonPropertyName("export_high_kwh")] public double ExportHighKwh { get; init; }
+    [JsonPropertyName("soc_percent")] public double SocPercent { get; init; }
+    [JsonPropertyName("import_price")] public double ImportPrice { get; init; }
+    [JsonPropertyName("feed_in_price")] public double FeedInPrice { get; init; }
+}
+
+/// <summary>How tomorrow's solar charge looks when starting from the SOC left at midnight.</summary>
+public record TomorrowCase
+{
+    [JsonPropertyName("start_soc_percent")] public double StartSocPercent { get; init; }
+    [JsonPropertyName("peak_soc_percent")] public double PeakSocPercent { get; init; }
+    [JsonPropertyName("full_at")] public DateTimeOffset? FullAt { get; init; }
+    [JsonPropertyName("spilled_solar_kwh")] public double SpilledSolarKwh { get; init; }
+    [JsonPropertyName("import_kwh")] public double ImportKwh { get; init; }
+}
+
+public record TomorrowProjection
+{
+    [JsonPropertyName("date")] public string Date { get; init; } = "";
+    [JsonPropertyName("label")] public string Label { get; init; } = "Estimate only: no planned export is assumed for tomorrow.";
+    [JsonPropertyName("solar_kwh")] public double SolarKwh { get; init; }
+    [JsonPropertyName("load_kwh")] public double LoadKwh { get; init; }
+    [JsonPropertyName("price_forecast_covers_tomorrow")] public bool PriceForecastCoversTomorrow { get; init; }
+    [JsonPropertyName("with_todays_plan")] public TomorrowCase WithTodaysPlan { get; init; } = new();
+    [JsonPropertyName("if_nothing_sold_today")] public TomorrowCase IfNothingSoldToday { get; init; } = new();
+    [JsonPropertyName("verdict")] public string Verdict { get; init; } = "";
+    [JsonPropertyName("hourly")] public List<TomorrowHour> Hourly { get; init; } = new();
+}
 
 /// <summary>Projected grid flow for one clock hour: expected (base case) with the low/high of the solar and price scenarios.</summary>
 public record HourlyProjection
@@ -192,9 +246,9 @@ public static class DayProjector
         return before?.Price ?? points.OrderBy(p => p.Time).First().Price;
     }
 
-    public static List<(DateTimeOffset Start, double Hours)> Steps(DateTimeOffset now)
+    public static List<(DateTimeOffset Start, double Hours)> Steps(DateTimeOffset now, DateTimeOffset? until = null)
     {
-        var end = new DateTimeOffset(now.Date.AddDays(1), now.Offset);
+        var end = until ?? new DateTimeOffset(now.Date.AddDays(1), now.Offset);
         var steps = new List<(DateTimeOffset, double)>();
         for (var t = now; t < end;)
         {
@@ -241,10 +295,18 @@ public static class DayProjector
         double exportKwh = 0, exportRevenue = 0, importKwh = 0, importCost = 0, avoidedKwh = 0, avoidedValue = 0, loadTotal = 0, solarTotal = 0;
         var hourImport = new double[24];
         var hourExport = new double[24];
+        var hourSolar = new double[24];
+        var hourLoad = new double[24];
+        var hourSoc = new double[24];
+        var hourImportPrice = new double[24];
+        var hourFeedInPrice = new double[24];
+        var hourSeen = new double[24];
+        double spilled = 0, peak = energy / capacity * 100;
+        DateTimeOffset? fullAt = null;
         double nowImport = PriceFor(input.ImportPrices, input.Now, input.Now.AddMinutes(1)) ?? 0;
         double nowFeedIn = PriceFor(input.FeedInPrices, input.Now, input.Now.AddMinutes(1)) ?? 0;
 
-        foreach (var (start, hours) in Steps(input.Now))
+        foreach (var (start, hours) in Steps(input.Now, input.End))
         {
             var end = start.AddHours(hours);
             var mid = start.AddHours(hours / 2).DateTime;
@@ -282,6 +344,7 @@ public static class DayProjector
                 double stored = Math.Min(surplus, Math.Max(0, capacity - energy) / eta);
                 energy += stored * eta;
                 surplus -= stored;
+                spilled += surplus;
 
                 // A zero or negative feed-in price means the solar is curtailed (the PV limit automation) rather than sold at a loss.
                 if (surplus > 0 && feedIn > 0)
@@ -317,6 +380,15 @@ public static class DayProjector
                 }
             }
 
+            hourSolar[start.Hour] += solar;
+            hourLoad[start.Hour] += load;
+            hourSoc[start.Hour] = energy / capacity * 100;
+            hourImportPrice[start.Hour] += importPrice * hours;
+            hourFeedInPrice[start.Hour] += feedIn * hours;
+            hourSeen[start.Hour] += hours;
+            peak = Math.Max(peak, energy / capacity * 100);
+            if (fullAt is null && energy >= capacity * 0.99) fullAt = start.AddHours(hours);
+
             hourImport[start.Hour] += importKwh - importBefore;
             hourExport[start.Hour] += exportKwh - exportBefore;
         }
@@ -327,7 +399,17 @@ public static class DayProjector
             Math.Round(loadTotal, 2),
             Math.Round(solarTotal, 2),
             hourImport,
-            hourExport);
+            hourExport)
+        {
+            PeakSocPercent = Math.Round(peak, 1),
+            FullAt = fullAt,
+            SpilledSolarKwh = Math.Round(spilled, 2),
+            HourSolarKwh = hourSolar,
+            HourLoadKwh = hourLoad,
+            HourSocPercent = hourSoc,
+            HourImportPrice = hourImportPrice.Select((v, h) => hourSeen[h] > 0 ? v / hourSeen[h] : 0).ToArray(),
+            HourFeedInPrice = hourFeedInPrice.Select((v, h) => hourSeen[h] > 0 ? v / hourSeen[h] : 0).ToArray()
+        };
     }
 
     private static List<HourlyProjection> Hourly(SimulationResult low, SimulationResult baseCase, SimulationResult high)
@@ -349,7 +431,68 @@ public static class DayProjector
         return list;
     }
 
-    public static DayProjection Build(ProjectionInput input, RealisedTotals realised, DateTimeOffset? priceForecastUntil, int loadDaysUsed, bool loadFallback, IEnumerable<string>? notes = null)
+    /// <summary>
+    /// Tomorrow by hour, starting from the SOC today's plan leaves at midnight, next to the same day if nothing were sold today.
+    /// No planned export is assumed for tomorrow, so the battery charge from tomorrow's solar is shown on its own.
+    /// </summary>
+    private static TomorrowProjection BuildTomorrow(ProjectionInput today, SimulationResult todayBase, ProjectionInput template)
+    {
+        var unsold = Simulate(today with { ExportThreshold = null }, ProjectionScenario.Base);
+
+        SimulationResult Run(double startSoc, ProjectionScenario scenario) => Simulate(template with { StartSocPercent = startSoc, ExportThreshold = null, GridCharging = false }, scenario);
+        var plan = Run(todayBase.EndSocPercent, ProjectionScenario.Base);
+        var noSell = Run(unsold.EndSocPercent, ProjectionScenario.Base);
+        var low = Run(todayBase.EndSocPercent, ProjectionScenario.Low);
+        var high = Run(todayBase.EndSocPercent, ProjectionScenario.High);
+        double R(double v) => Math.Round(v, 2);
+
+        var hours = new List<TomorrowHour>();
+        for (int h = 0; h < 24; h++)
+        {
+            double[] imports = { low.HourImportKwh[h], plan.HourImportKwh[h], high.HourImportKwh[h] };
+            double[] exports = { low.HourExportKwh[h], plan.HourExportKwh[h], high.HourExportKwh[h] };
+            hours.Add(new TomorrowHour
+            {
+                Hour = h, SolarKwh = R(plan.HourSolarKwh[h]), LoadKwh = R(plan.HourLoadKwh[h]),
+                ImportKwh = R(imports[1]), ImportLowKwh = R(imports.Min()), ImportHighKwh = R(imports.Max()),
+                ExportKwh = R(exports[1]), ExportLowKwh = R(exports.Min()), ExportHighKwh = R(exports.Max()),
+                SocPercent = Math.Round(plan.HourSocPercent[h], 1), ImportPrice = Math.Round(plan.HourImportPrice[h], 3), FeedInPrice = Math.Round(plan.HourFeedInPrice[h], 3)
+            });
+        }
+
+        var withPlan = Case(todayBase.EndSocPercent, plan);
+        var withoutSelling = Case(unsold.EndSocPercent, noSell);
+        bool covers = template.FeedInPrices.Any(p => p.Time >= template.Now.AddHours(12)) && template.ImportPrices.Any(p => p.Time >= template.Now.AddHours(12));
+
+        return new TomorrowProjection
+        {
+            Date = template.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            SolarKwh = plan.SolarKwh,
+            LoadKwh = plan.LoadKwh,
+            PriceForecastCoversTomorrow = covers,
+            WithTodaysPlan = withPlan,
+            IfNothingSoldToday = withoutSelling,
+            Verdict = Verdict(withPlan, withoutSelling, todayBase.Totals.ExportKwh),
+            Hourly = hours
+        };
+
+        static TomorrowCase Case(double startSoc, SimulationResult r) => new()
+        {
+            StartSocPercent = startSoc, PeakSocPercent = r.PeakSocPercent, FullAt = r.FullAt, SpilledSolarKwh = r.SpilledSolarKwh, ImportKwh = r.Totals.ImportKwh
+        };
+    }
+
+    private static string Verdict(TomorrowCase plan, TomorrowCase noSell, double soldTodayKwh)
+    {
+        string fullBy(TomorrowCase c) => c.FullAt is { } t ? $"full by about {t:HH:mm}" : $"peaking at {c.PeakSocPercent:0}%";
+        if (soldTodayKwh < 0.1)
+            return $"No battery export is planned today. Tomorrow starts at {plan.StartSocPercent:0}% and is {fullBy(plan)}.";
+        if (plan.PeakSocPercent >= 99)
+            return $"Selling about {soldTodayKwh:0.#} kWh today leaves {plan.StartSocPercent:0}% at midnight; tomorrow's solar still refills the battery ({fullBy(plan)}), so the sale costs nothing tomorrow. Holding it instead would only spill about {noSell.SpilledSolarKwh - plan.SpilledSolarKwh:0.#} kWh more solar.";
+        return $"Selling about {soldTodayKwh:0.#} kWh today leaves {plan.StartSocPercent:0}% at midnight and tomorrow's solar only reaches {plan.PeakSocPercent:0}% (about {noSell.PeakSocPercent:0}% if nothing were sold), with {plan.ImportKwh:0.#} kWh imported against {noSell.ImportKwh:0.#} kWh. Part of what is sold today has to be bought back or missed tomorrow.";
+    }
+
+    public static DayProjection Build(ProjectionInput input, RealisedTotals realised, DateTimeOffset? priceForecastUntil, int loadDaysUsed, bool loadFallback, IEnumerable<string>? notes = null, ProjectionInput? tomorrow = null)
     {
         var low = Simulate(input, ProjectionScenario.Low);
         var baseCase = Simulate(input, ProjectionScenario.Base);
@@ -368,6 +511,7 @@ public static class DayProjector
             Remainder = baseCase.Totals,
             DayTotal = dayTotal,
             Hourly = Hourly(low, baseCase, high),
+            Tomorrow = tomorrow is null ? null : BuildTomorrow(input, baseCase, tomorrow),
             Range = new ProjectionRange
             {
                 LowNetCash = totals.Min(t => t.NetCash),

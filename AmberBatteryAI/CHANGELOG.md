@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.0 (2026-11-19)
+
+### Added
+- Tomorrow's forecasts now inform today's decision. The Solar Forecast line in the prompt ends with a "Tomorrow outlook": Solcast energy and peak for tomorrow, Amber feed-in and import means and best times for tomorrow, and a computed verdict on whether tomorrow's solar (after the house load, the usual haircut and `solar_confidence`) can refill the battery from the `conserve_soc_at_6am` target. It arrives through the existing `{{solarSummary}}` placeholder, so custom prompts need no edits; the default prompt has one new guidance paragraph (sell surplus tonight freely if solar will refill, otherwise only when the price clearly beats buying back).
+- Tomorrow by hour on the Performance page and in `GET /api/projection` (`tomorrow`): hourly solar, house load, expected import/export (with low/high range), battery SOC and prices, starting from the SOC today's plan leaves at midnight. It also compares that with the same day if nothing were sold today (SOC at the start, peak, time full, solar spilled, imports) and gives a plain-language verdict on whether selling today costs anything tomorrow. Display only; no export is assumed for tomorrow.
+
+### Notes
+- The projection reads about 48 h of Amber forecast; if it does not reach tomorrow the last known price is held and the page says so.
+- Trading behaviour is unchanged apart from the extra prompt context.
+
 ## 1.8.0 (2026-11-19)
 
 ### Added
