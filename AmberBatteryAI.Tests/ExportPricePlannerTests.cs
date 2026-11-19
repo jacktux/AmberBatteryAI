@@ -293,3 +293,10 @@ public class ExportAutomationAlignmentTests
     public void EffectiveSellFloorIsPriceMinusHysteresis() =>
         Assert.Equal(0.098, ExportPricePlanner.EffectiveSellFloor(0.118, 0.02), 3);
 }
+
+public class StopPriceDisplayTests
+{
+    [Fact]
+    public void CardStopPriceIsTheEffectiveSellFloor() =>
+        Assert.Equal(0.11, ExportPricePlanner.EffectiveSellFloor(0.13, 0.02), 3);
+}

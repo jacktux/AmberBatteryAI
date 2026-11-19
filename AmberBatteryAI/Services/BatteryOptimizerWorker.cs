@@ -656,7 +656,8 @@ public class BatteryOptimizerWorker(
                 safeImportLimit,
                 decision.Reasoning,
                 exportStartSoc,
-                importStartSoc),
+                importStartSoc,
+                ExportPricePlanner.EffectiveSellFloor(safeExportPrice, exportPriceHysteresis)),
             telemetrySnapshot,
             prompt);
 

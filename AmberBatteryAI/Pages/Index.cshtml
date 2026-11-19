@@ -67,10 +67,10 @@
             if (data.decision) {
                 document.getElementById('mode').textContent = data.decision.mode || 'Unknown';
                 document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
-                document.getElementById('exportSub').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '') + ' | Max ' + data.decision.exportPowerLimit + 'W';
+                document.getElementById('exportSub').textContent = (data.decision.exportStopPrice != null ? 'Stops below $' + data.decision.exportStopPrice.toFixed(2) + ' | Starts at/above $' + data.decision.exportPrice.toFixed(2) + ' | ' : '') + 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '') + ' | Max ' + data.decision.exportPowerLimit + 'W';
 
                 document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
-                document.getElementById('importSub').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '') + ' | Max ' + data.decision.importPowerLimit + 'W';
+                document.getElementById('importSub').textContent = 'Starts at/below $' + data.decision.importPrice.toFixed(2) + ' | Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '') + ' | Max ' + data.decision.importPowerLimit + 'W';
 
                 document.getElementById('reasoning').textContent = data.decision.reasoning;
             }

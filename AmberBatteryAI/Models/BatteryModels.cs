@@ -25,7 +25,8 @@ public record AppliedDecision(
     double ImportPowerLimit,
     string Reasoning,
     double? ExportStartSoc = null,
-    double? ImportStartSoc = null
+    double? ImportStartSoc = null,
+    double? ExportStopPrice = null
 );
 
 public record StatusSnapshot(

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.2 (2026-11-19)
+
+### Added
+- Dashboard cards show the price thresholds beside the SOC ones (display only). Export: "Stops below $X | Starts at/above $Y | Stop at N% SOC | Starts above M% | Max W", where X is the export price minus `export_price_hysteresis` (effective_sell_floor) and Y is the export price written to Home Assistant. Import: "Starts at/below $P | Charge to N% SOC | ...", the import price written; the app has no import price hysteresis, so there is no import stop price. New `export_stop_price` field in the status JSON. No trading change.
+
 ## 1.12.1 (2026-11-19)
 
 ### Added
