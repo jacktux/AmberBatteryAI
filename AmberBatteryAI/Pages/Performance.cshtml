@@ -4,7 +4,10 @@
 }
 
         <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Today's Projection (estimate)</div>
+            <div class="label">Projection and actuals
+                <select id="projDay" onchange="loadProjection()" style="margin-left: 8px;"></select>
+            </div>
+            <div class="sub" id="projMode"></div>
             <div class="sub">An estimate of today's cash: what has been realised so far plus a simulation of the rest of the day from Amber price forecasts, the Solcast forecast and your average house load by half-hour. It is updated on every optimizer run, is not a guarantee, and is not used in any decision. Net cash is export revenue minus import cost; "incl. avoided" adds the import cost avoided by solar and battery.</div>
             <div style="overflow-x: auto;">
                 <table class="history">
@@ -60,9 +63,9 @@
 
 @section Scripts {
     <script>
-        function drawHourly(hours) {
+        function drawHourly(hours, actual) {
             const box = document.getElementById('projChart');
-            if (!hours.length) { box.textContent = 'No grid import or export is projected for the rest of today.'; return; }
+            if (!hours.length) { box.textContent = actual ? 'No grid import or export was recorded.' : 'No grid import or export is projected for the rest of today.'; return; }
             const ns = 'http://www.w3.org/2000/svg';
             const max = Math.max(0.5, ...hours.flatMap(h => [h.import_high_kwh, h.export_high_kwh]));
             const slot = 44, left = 34, top = 8, plot = 140, width = left + hours.length * slot + 6, height = top + plot + 22;
@@ -87,15 +90,63 @@
                 };
                 const tip = (el, text) => el.appendChild(Object.assign(document.createElementNS(ns, 'title'), { textContent: text }));
                 tip(bar(0, h.import_kwh, h.import_high_kwh, '#e05555', '#e0555566'),
-                    'Import ' + h.import_kwh + ' kWh (range ' + h.import_low_kwh + ' to ' + h.import_high_kwh + ')');
+                    actual ? 'Import ' + h.import_kwh + ' kWh' : 'Import ' + h.import_kwh + ' kWh (range ' + h.import_low_kwh + ' to ' + h.import_high_kwh + ')');
                 tip(bar(18, h.export_kwh, h.export_high_kwh, '#3fb950', '#3fb95066'),
-                    'Export ' + h.export_kwh + ' kWh (range ' + h.export_low_kwh + ' to ' + h.export_high_kwh + ')');
+                    actual ? 'Export ' + h.export_kwh + ' kWh' : 'Export ' + h.export_kwh + ' kWh (range ' + h.export_low_kwh + ' to ' + h.export_high_kwh + ')');
                 add('text', { x: x + 17, y: height - 6, 'text-anchor': 'middle', 'font-size': 10, fill: '#999' }, String(h.hour).padStart(2, '0') + ':00');
             });
             box.replaceChildren(svg);
         }
 
+        function initDaySelector() {
+            const select = document.getElementById('projDay');
+            for (let i = 0; i < 8; i++) {
+                const d = new Date(Date.now() - i * 86400000);
+                const value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                select.add(new Option(i === 0 ? 'Today (projection)' : value + (i === 1 ? ' (yesterday)' : ''), i === 0 ? '' : value));
+            }
+        }
+
         async function loadProjection() {
+            const day = document.getElementById('projDay').value;
+            if (!day) { document.getElementById('projMode').textContent = 'Estimate: realised so far plus a simulation of the rest of today.'; return loadProjectionToday(); }
+            return loadActuals(day);
+        }
+
+        // A past day: what was actually imported and exported (from the logged telemetry), not an estimate.
+        async function loadActuals(day) {
+            const body = document.getElementById('projRows');
+            document.getElementById('projMode').textContent = 'Actual figures for ' + day + ' from the logged telemetry (no estimate).';
+            document.getElementById('projAssumptions').textContent = '';
+            try {
+                const [days, hours] = await Promise.all([
+                    fetch('api/pnl?days=9').then(r => r.json()),
+                    fetch('api/pnl/hourly?date=' + day).then(r => r.json())
+                ]);
+                const t = days.find(d => d.date === day);
+                body.replaceChildren();
+                if (!t) {
+                    body.insertRow().insertCell().textContent = 'No telemetry was logged for ' + day + '.';
+                    document.getElementById('projSummary').textContent = '';
+                    drawHourly([]);
+                    return;
+                }
+                const money = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
+                const row = body.insertRow();
+                for (const text of ['Actual', t.export_kwh.toFixed(1) + ' kWh / ' + money(t.export_revenue), t.import_kwh.toFixed(1) + ' kWh / ' + money(t.import_cost),
+                                    t.avoided_import_kwh.toFixed(1) + ' kWh / ' + money(t.avoided_import_value), money(t.net_cash), money(t.net_incl_avoided)])
+                    row.insertCell().textContent = text;
+                document.getElementById('projSummary').textContent = 'Covered ' + t.covered_hours.toFixed(1) + ' h of the day.' +
+                    (t.covered_hours < 23 ? ' Part of the day has no samples, so the totals are partial.' : '');
+                drawHourly(hours.map(h => ({ hour: h.hour, import_kwh: h.import_kwh, import_low_kwh: h.import_kwh, import_high_kwh: h.import_kwh,
+                                             export_kwh: h.export_kwh, export_low_kwh: h.export_kwh, export_high_kwh: h.export_kwh,
+                                             net: h.net_cash })), true);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function loadProjectionToday() {
             const body = document.getElementById('projRows');
             try {
                 const response = await fetch('api/projection');
@@ -187,6 +238,7 @@
             }
         }
 
+        initDaySelector();
         function onNewRun() { loadProjection(); loadPnl(); loadBias(); }
     </script>
 }

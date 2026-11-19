@@ -82,6 +82,13 @@ app.MapGet("/api/pnl", (TelemetryHistoryService telemetry, int? days, string? fo
     return Results.Ok(pnl);
 });
 
+// Actual import/export and cash per clock hour for one past or current local date (date=yyyy-MM-dd, default today).
+app.MapGet("/api/pnl/hourly", (TelemetryHistoryService telemetry, string? date) =>
+{
+    var day = date is null ? DateOnly.FromDateTime(DateTime.Now) : DateOnly.TryParse(date, out var parsed) ? parsed : (DateOnly?)null;
+    return day is null ? Results.BadRequest("date must be yyyy-MM-dd") : Results.Ok(telemetry.BuildHourlyPnl(day.Value));
+});
+
 // Rolling forecast bias (actual minus forecast feed-in price) per lead-time bucket. Recorded only, not used in decisions.
 app.MapGet("/api/forecast-bias", (TelemetryHistoryService telemetry, int? days) =>
     Results.Ok(telemetry.BuildForecastBias(days ?? 14).Bias));
