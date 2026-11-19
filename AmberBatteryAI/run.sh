@@ -41,6 +41,13 @@ if [ -f "$OPTIONS_FILE" ]; then
   export Optimizer__SolarConfidence=$(jq -r '.solar_confidence // 0.6' "$OPTIONS_FILE")
   export HomeAssistant__SolarForecastTomorrowEntity=$(jq -r '.solar_forecast_tomorrow_entity // "sensor.solcast_pv_forecast_forecast_tomorrow"' "$OPTIONS_FILE")
   export Optimizer__MorningSolarStartHour=$(jq -r '.morning_solar_start_hour // 7.5' "$OPTIONS_FILE")
+  export HomeAssistant__EvPowerEntity=$(jq -r '.ev_power_entity // "sensor.wattpilot_charging_power"' "$OPTIONS_FILE")
+  export Ev__SubtractFromLoad=$(jq -r 'if .ev_subtract_from_load == null then true else .ev_subtract_from_load end' "$OPTIONS_FILE")
+  export Ev__Enabled=$(jq -r 'if .ev_control_enabled == null then false else .ev_control_enabled end' "$OPTIONS_FILE")
+  export HomeAssistant__EvGrabThresholdEntity=$(jq -r '.ev_grab_threshold_entity // "input_number.ev_solar_grab_threshold"' "$OPTIONS_FILE")
+  export Ev__HoldOffsetPercent=$(jq -r '.ev_hold_offset_percent // 10' "$OPTIONS_FILE")
+  export Ev__ZeroFeedInThresholdPercent=$(jq -r '.ev_zero_feed_in_threshold_percent // 60' "$OPTIONS_FILE")
+  export Ev__HoldFeedInPrice=$(jq -r '.ev_hold_feed_in_price // 0.15' "$OPTIONS_FILE")
 fi
 
 export ASPNETCORE_URLS="http://0.0.0.0:8099"

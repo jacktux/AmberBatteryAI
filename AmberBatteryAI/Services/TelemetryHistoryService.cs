@@ -104,6 +104,13 @@ public class TelemetryHistoryService
     public List<DailyPnl> BuildDailyPnl(int days) =>
         PnlCalculator.Daily(Read(days), DateTimeOffset.Now, _maxGap);
 
+    /// <summary>Actual import/export per clock hour for one local date, from the telemetry samples.</summary>
+    public List<HourlyPnl> BuildHourlyPnl(DateOnly date)
+    {
+        int back = Math.Max(1, (DateOnly.FromDateTime(DateTime.Now).DayNumber - date.DayNumber) + 1);
+        return PnlCalculator.Hourly(Read(back), date, DateTimeOffset.Now, _maxGap);
+    }
+
     /// <summary>Forecast errors and the rolling per-bucket bias, rebuilt from the decision and sample logs.</summary>
     public (List<ForecastError> Errors, ForecastBiasReport Bias) BuildForecastBias(int days = 14)
     {

@@ -1,12 +1,23 @@
 # Changelog
 
-## 1.7.0 (2026-11-18)
+## 1.8.0 (2026-11-19)
+
+### Added
+- Car charging awareness. The add-on reads the wallbox power (`ev_power_entity`, default `sensor.wattpilot_charging_power`; empty to turn off) and records it in the telemetry samples and decision log (`ev_power_w`). While the car draws more than 200 W the prompt's house-load line says "(includes car charging X kW)" (no new placeholder, so custom prompts need no edits). Car power is taken out of the 7-day house-load profile used by the day projection, so a charging session does not inflate it (`ev_subtract_from_load`, default on; turn it off if your home-power sensor does not include the wallbox). The projection does not forecast car charging.
+- Optional control of the Node-RED car flow's solar-grab threshold (`ev_control_enabled`, default off). The flow starts taking energy from the battery at `input_number.ev_solar_grab_threshold`; with this on, your value stays the base and the add-on only changes it while it matters: it adds `ev_hold_offset_percent` (default 10, up to 100%) while the look-ahead says HOLD or a discharge is planned with feed-in at or above `ev_hold_feed_in_price` (default $0.15), and lowers it to `ev_zero_feed_in_threshold_percent` (default 60, never above your value) when feed-in is zero or negative and solar is still to come. It never goes below the conserve target or 20%. If you edit the helper yourself the new value becomes the base. Turning the option off or the master switch off puts your value back. The change is shown on the Decisions page and logged (`ev_grab_*`).
+
+### Notes
+- Nothing else about trading changes. The flow's own export boost (maximum amps while exporting) still ignores prices.
+- No prompt change; saved custom prompts need no edits.
+
+## 1.7.1 (2026-11-19)
 
 ### Added
 - Today's projection on the Performance page: an estimate of today's cash (AUD) made of what has been realised so far (daily P&L) plus a simulation of the rest of the day, rebuilt on every optimizer run that applies a decision. It shows export revenue, import cost, avoided import and net cash for the realised part, the remainder and the day total, a likely low/high range, the SOC now and at midnight, and the assumptions used. It is clearly labelled as an estimate and is display only: it changes no setting and is not sent to the model.
 - The simulation steps through the remaining half-hour slots to midnight from the current SOC (40 kWh, about 10% round-trip loss, 20% hard floor and the floor_kWh target). Solar serves the house first, then the battery, then export; a shortfall comes from the battery, then the grid. The planned export (surplus above floor_kWh at or above the applied export price, within the export power limit) and CHARGE-mode grid charging are included. Solar is treated as curtailed when feed-in is zero or negative.
 - Inputs: the Amber import and feed-in forecasts, Solcast (P50 for the base case, P10/P90 for the range) and the average house load of the last 7 complete days by half-hour, built from the telemetry samples. Days with under 12 hours of samples are ignored; with fewer than 7 days the available days are averaged, and with none the average load setting is used. The days used are shown. The range also applies the feed-in forecast bias from `forecast-bias.json` when it exists.
 - Hourly bar chart on the Performance page (inline SVG, no external library): projected import and export kWh for each remaining hour of today, with a lighter extension to the high end of the low/base/high scenarios (Solcast P10/P90 and feed-in bias) as the likelihood range. Also in the projection JSON as `hourly` (`import_kwh`, `import_low_kwh`, `import_high_kwh`, and the same for export). Day-to-day variation in house load is not part of the range.
+- A day selector on the Performance projection panel (today plus the 7 days before): today shows the projection, a past day shows the actual export/import kWh, cash and avoided import for the day and an hourly bar chart of actual import and export, from the logged telemetry (limited by sample retention; partial days are flagged). New `GET /api/pnl/hourly?date=yyyy-MM-dd`.
 - `GET /api/projection` (latest projection, 204 until the first run) and `GET /api/projection/log?days=` (every run's projection). Each run is appended to `projections-YYYY-MM-DD.jsonl` next to the decision log (same retention) and the latest is kept in `day-projection.json`, so projections can be compared with actuals later.
 - Options `Projection:Enabled` (default true) and `Projection:LoadDays` (default 7).
 

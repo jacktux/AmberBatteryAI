@@ -13,6 +13,7 @@ public class BatteryOptimizerWorker(
     DecisionHistoryService history,
     TelemetryReader telemetry,
     DayProjectionService projection,
+    EvGrabService evGrab,
     ILogger<BatteryOptimizerWorker> logger) : BackgroundService
 {
     private const string DefaultAiModel = "gemini-3.5-flash-lite";
@@ -187,6 +188,7 @@ public class BatteryOptimizerWorker(
         if (await IsMasterSwitchOffAsync(haClient, masterSwitchEntity, ct))
         {
             logger.LogInformation("Skipping optimization: {Entity} is off.", masterSwitchEntity);
+            await evGrab.RestoreAsync(haClient, ct);
             history.Append(entry with { Outcome = DecisionOutcome.Skipped, Note = $"{masterSwitchEntity} is off; optimizer idle, settings left unchanged." });
             return;
         }
@@ -302,6 +304,8 @@ public class BatteryOptimizerWorker(
 
         double exportPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportPriceHysteresisEntity"] ?? "input_number.export_price_hysteresis", DefaultExportPriceHysteresis, ct);
         double? homeLoadWatts = telemetrySample.HomePowerW ?? ParseWatts(homePower);
+        if (telemetrySample.EvPowerW is > 200)
+            homePower += $" (includes car charging {telemetrySample.EvPowerW.Value / 1000:0.0} kW)";
 
         var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, ct);
         string exportPriceHysteresisText = F(exportPriceHysteresis);
@@ -354,7 +358,8 @@ public class BatteryOptimizerWorker(
                 ImportMinStopSoc = importMinStopSocText,
                 ExportSocHysteresis = exportSocHysteresis,
                 ImportSocHysteresis = importSocHysteresis,
-                AverageLoadKw = avgLoadKw
+                AverageLoadKw = avgLoadKw,
+                EvPowerW = telemetrySample.EvPowerW
             }
         };
 
@@ -582,6 +587,21 @@ public class BatteryOptimizerWorker(
 
         // Read back what Home Assistant actually holds now (helpers can clamp or reject a written value).
         _pending = entry = entry with { ActiveSetpoints = await telemetry.ReadSetpointsAsync(haClient, ct) };
+
+        // Car solar-grab threshold (optional): the user's value stays the base. Failures never affect the run.
+        var evResult = await evGrab.ApplyAsync(
+            haClient,
+            lookAheadHold || (string.Equals(decision.Mode?.Trim(), "DISCHARGE", StringComparison.OrdinalIgnoreCase)
+                && telemetrySample.FeedInPrice >= config.GetValue("Ev:HoldFeedInPrice", 0.15)),
+            telemetrySample.FeedInPrice ?? 1,
+            remainingSolarKwh > 1.0,
+            Math.Max(SocPlanner.HardFloorPercent, conservePercent),
+            ct);
+        if (evResult is not null)
+            _pending = entry = entry with
+            {
+                Computed = (entry.Computed ?? new DecisionComputed()) with { EvGrabBase = evResult.Base, EvGrabApplied = evResult.Applied, EvGrabReason = evResult.Reason }
+            };
 
         // Display-only estimate of today's cash; it never changes a setting and a failure cannot affect the run.
         // Built before the run is reported as done so the page refreshes with the new estimate.

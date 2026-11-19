@@ -165,7 +165,7 @@ public class DayProjectionService(TelemetryHistoryService telemetry, ProjectionS
 
             int days = Math.Clamp(config.GetValue("Projection:LoadDays", LoadProfileBuilder.DefaultDays), 1, 30);
             var samples = telemetry.Read(days + 1);
-            var load = LoadProfileBuilder.Build(samples, DateOnly.FromDateTime(now.DateTime), ctx.AvgLoadKw, days);
+            var load = LoadProfileBuilder.Build(samples, DateOnly.FromDateTime(now.DateTime), ctx.AvgLoadKw, days, subtractEv: config.GetValue("Ev:SubtractFromLoad", true));
 
             string today = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var pnl = telemetry.BuildDailyPnl(1).FirstOrDefault(d => d.Date == today);
@@ -206,6 +206,7 @@ public class DayProjectionService(TelemetryHistoryService telemetry, ProjectionS
             {
                 "Estimate only. Not applied to any decision.",
                 "Battery energy above the floor is sold when feed-in reaches the applied export price, at the applied export power limit.",
+                "Car charging is not projected; it is taken out of the historical house load.",
                 "Solar is curtailed, not exported, while the feed-in price is zero or negative.",
                 "Energy left in the battery at midnight is not valued; see end_soc_percent.",
                 bias is null ? "No forecast bias report yet: the range uses Solcast low/high estimates only." : "Range: Solcast 10%/90% solar and feed-in forecast bias plus/minus its average error."

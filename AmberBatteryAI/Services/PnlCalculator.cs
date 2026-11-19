@@ -23,6 +23,19 @@ public record DailyPnl
     [JsonPropertyName("samples")] public int Samples { get; init; }
 }
 
+public record HourlyPnl
+{
+    [JsonPropertyName("hour")] public int Hour { get; init; }
+    [JsonPropertyName("export_kwh")] public double ExportKwh { get; init; }
+    [JsonPropertyName("export_revenue")] public double ExportRevenue { get; init; }
+    [JsonPropertyName("import_kwh")] public double ImportKwh { get; init; }
+    [JsonPropertyName("import_cost")] public double ImportCost { get; init; }
+    [JsonPropertyName("avoided_import_kwh")] public double AvoidedImportKwh { get; init; }
+    [JsonPropertyName("avoided_import_value")] public double AvoidedImportValue { get; init; }
+    [JsonPropertyName("net_cash")] public double NetCash { get; init; }
+    [JsonPropertyName("net_incl_avoided")] public double NetInclAvoided { get; init; }
+}
+
 /// <summary>
 /// Builds the daily profit and loss from logged telemetry samples. Each sample is taken to hold until the next one,
 /// for at most <c>maxGap</c>, so gaps (add-on stopped, entity missing) are not filled with made-up energy.
@@ -48,6 +61,34 @@ public static class PnlCalculator
         }
 
         return days.Select(d => d.Value.ToReport(d.Key)).ToList();
+    }
+
+    /// <summary>Actuals for one local date split by clock hour (a sample counts in the hour it was recorded); hours without samples are omitted.</summary>
+    public static List<HourlyPnl> Hourly(IEnumerable<TelemetrySample> samples, DateOnly date, DateTimeOffset asOf, TimeSpan maxGap)
+    {
+        var ordered = samples.OrderBy(s => s.Timestamp).ToList();
+        var hours = new SortedDictionary<int, Day>();
+
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var s = ordered[i];
+            if (DateOnly.FromDateTime(s.Timestamp.DateTime) != date) continue;
+            var until = i + 1 < ordered.Count ? ordered[i + 1].Timestamp : asOf;
+            var span = until - s.Timestamp;
+            if (span > maxGap) span = maxGap;
+            if (!hours.TryGetValue(s.Timestamp.Hour, out var day)) hours[s.Timestamp.Hour] = day = new Day();
+            day.Add(s, span.TotalHours);
+        }
+
+        return hours.Select(h =>
+        {
+            var d = h.Value.ToReport(date);
+            return new HourlyPnl
+            {
+                Hour = h.Key, ExportKwh = d.ExportKwh, ExportRevenue = d.ExportRevenue, ImportKwh = d.ImportKwh, ImportCost = d.ImportCost,
+                AvoidedImportKwh = d.AvoidedImportKwh, AvoidedImportValue = d.AvoidedImportValue, NetCash = d.NetCash, NetInclAvoided = d.NetInclAvoided
+            };
+        }).ToList();
     }
 
     private class Day

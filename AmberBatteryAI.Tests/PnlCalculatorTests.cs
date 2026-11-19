@@ -103,4 +103,22 @@ public class PnlCalculatorTests
     [Fact]
     public void MissingGridPowerGivesNoImportOrExport() =>
         Assert.Equal((null, null), TelemetryMath.SplitGrid(null, true));
+
+    [Fact]
+    public void HourlySplitsOneDayByClockHour()
+    {
+        var offset = TimeSpan.FromHours(10);
+        TelemetrySample S(int day, int hour, int min, double importW) => new()
+        {
+            Timestamp = new DateTimeOffset(2026, 11, day, hour, min, 0, offset), GridImportW = importW, ImportPrice = 0.30, FeedInPrice = 0.05, HomePowerW = 1000
+        };
+        var samples = new[] { S(17, 23, 0, 3000), S(18, 9, 0, 2000), S(18, 9, 30, 2000), S(18, 10, 0, 0) };
+
+        var hours = PnlCalculator.Hourly(samples, new DateOnly(2026, 11, 18), new DateTimeOffset(2026, 11, 18, 10, 1, 0, offset), TimeSpan.FromMinutes(5));
+
+        Assert.Equal(new[] { 9, 10 }, hours.Select(h => h.Hour));
+        Assert.True(hours[0].ImportKwh > 0);
+        Assert.Equal(0, hours[1].ImportKwh);
+    }
 }
+

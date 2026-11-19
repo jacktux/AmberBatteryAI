@@ -98,14 +98,16 @@ public static class LoadProfileBuilder
     /// A day counts only if samples cover at least <paramref name="minSlotsPerDay"/> of its 48 half-hours. A slot with no
     /// data on any day, and the whole profile when no day qualifies, uses <paramref name="fallbackKw"/>.
     /// </summary>
-    public static LoadProfile Build(IEnumerable<TelemetrySample> samples, DateOnly today, double fallbackKw, int days = DefaultDays, int minSlotsPerDay = MinSlotsPerDay)
+    public static LoadProfile Build(IEnumerable<TelemetrySample> samples, DateOnly today, double fallbackKw, int days = DefaultDays, int minSlotsPerDay = MinSlotsPerDay, bool subtractEv = true)
     {
         var first = today.AddDays(-Math.Max(1, days));
         var perDay = new Dictionary<DateOnly, (double Sum, int Count)[]>();
 
         foreach (var s in samples)
         {
-            if (s.HomePowerW is not double watts || !double.IsFinite(watts) || watts < 0) continue;
+            if (s.HomePowerW is not double homeWatts || !double.IsFinite(homeWatts) || homeWatts < 0) continue;
+            // Car charging is not house load: a session would otherwise inflate the average for that time of day.
+            double watts = subtractEv && s.EvPowerW is double ev && double.IsFinite(ev) && ev > 0 ? Math.Max(0, homeWatts - ev) : homeWatts;
             var day = DateOnly.FromDateTime(s.Timestamp.DateTime);
             if (day < first || day >= today) continue;
 
