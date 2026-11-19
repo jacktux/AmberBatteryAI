@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.3 (2026-11-19)
+
+### Changed
+- Threshold cards use two rows: SOC text on the first, price text on the second, with the Max power value larger and bold at the right, centred across both rows (wraps below on narrow widths). Display only.
+
 ## 1.12.2 (2026-11-19)
 
 ### Added

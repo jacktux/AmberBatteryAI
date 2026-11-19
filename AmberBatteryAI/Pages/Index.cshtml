@@ -23,13 +23,19 @@
             <div class="card export">
                 <div class="label">Export Thresholds</div>
                 <div class="value" id="exportMain">--</div>
-                <div class="sub" id="exportSub">Stop SOC: -- | Limit: --</div>
+                <div class="sub-grid">
+                    <div class="sub-lines"><div class="sub" id="exportSubSoc">--</div><div class="sub" id="exportSubPrice">--</div></div>
+                    <div class="sub-max" id="exportMax">--</div>
+                </div>
             </div>
 
             <div class="card import">
                 <div class="label">Import Thresholds</div>
                 <div class="value" id="importMain">--</div>
-                <div class="sub" id="importSub">Stop SOC: -- | Limit: --</div>
+                <div class="sub-grid">
+                    <div class="sub-lines"><div class="sub" id="importSubSoc">--</div><div class="sub" id="importSubPrice">--</div></div>
+                    <div class="sub-max" id="importMax">--</div>
+                </div>
             </div>
 
 
@@ -67,10 +73,14 @@
             if (data.decision) {
                 document.getElementById('mode').textContent = data.decision.mode || 'Unknown';
                 document.getElementById('exportMain').textContent = '>= $' + data.decision.exportPrice.toFixed(2) + ' / kWh';
-                document.getElementById('exportSub').textContent = (data.decision.exportStopPrice != null ? 'Stops below $' + data.decision.exportStopPrice.toFixed(2) + ' | Starts at/above $' + data.decision.exportPrice.toFixed(2) + ' | ' : '') + 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '') + ' | Max ' + data.decision.exportPowerLimit + 'W';
+                document.getElementById('exportSubSoc').textContent = 'Stop at ' + data.decision.exportStopSoc + '% SOC' + (data.decision.exportStartSoc != null ? ' | Starts above ' + data.decision.exportStartSoc + '%' : '');
+                document.getElementById('exportSubPrice').textContent = (data.decision.exportStopPrice != null ? 'Stops below $' + data.decision.exportStopPrice.toFixed(2) + ' | ' : '') + 'Starts at/above $' + data.decision.exportPrice.toFixed(2);
+                document.getElementById('exportMax').textContent = 'Max ' + data.decision.exportPowerLimit + 'W';
 
                 document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
-                document.getElementById('importSub').textContent = 'Starts at/below $' + data.decision.importPrice.toFixed(2) + ' | Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '') + ' | Max ' + data.decision.importPowerLimit + 'W';
+                document.getElementById('importSubSoc').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '');
+                document.getElementById('importSubPrice').textContent = 'Starts at/below $' + data.decision.importPrice.toFixed(2);
+                document.getElementById('importMax').textContent = 'Max ' + data.decision.importPowerLimit + 'W';
 
                 document.getElementById('reasoning').textContent = data.decision.reasoning;
             }
