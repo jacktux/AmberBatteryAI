@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0 (2026-11-18)
+## 1.7.1 (2026-11-19)
 
 ### Added
 - Today's projection on the Performance page: an estimate of today's cash (AUD) made of what has been realised so far (daily P&L) plus a simulation of the rest of the day, rebuilt on every optimizer run that applies a decision. It shows export revenue, import cost, avoided import and net cash for the realised part, the remainder and the day total, a likely low/high range, the SOC now and at midnight, and the assumptions used. It is clearly labelled as an estimate and is display only: it changes no setting and is not sent to the model.
