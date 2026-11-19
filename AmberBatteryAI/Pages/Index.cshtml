@@ -79,7 +79,7 @@
 
                 document.getElementById('importMain').textContent = '<= $' + data.decision.importPrice.toFixed(2) + ' / kWh';
                 document.getElementById('importSubSoc').textContent = 'Charge to ' + data.decision.importStopSoc + '% SOC' + (data.decision.importStartSoc != null ? ' | Starts below ' + data.decision.importStartSoc + '%' : '');
-                document.getElementById('importSubPrice').textContent = 'Starts at/below $' + data.decision.importPrice.toFixed(2);
+                document.getElementById('importSubPrice').textContent = 'Stops above $' + data.decision.importPrice.toFixed(2) + ' | Starts at/below $' + data.decision.importPrice.toFixed(2);
                 document.getElementById('importMax').textContent = 'Max ' + data.decision.importPowerLimit + 'W';
 
                 document.getElementById('reasoning').textContent = data.decision.reasoning;

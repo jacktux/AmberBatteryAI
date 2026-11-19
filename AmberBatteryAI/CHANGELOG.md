@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.4 (2026-11-19)
+
+### Changed
+- Import card price row now reads "Stops above $P | Starts at/below $P" (the app has no import price hysteresis, so both are the import price). Display only.
+
 ## 1.12.3 (2026-11-19)
 
 ### Changed
