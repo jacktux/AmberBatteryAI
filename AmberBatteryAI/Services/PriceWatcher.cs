@@ -99,7 +99,7 @@ public class PriceWatcher(
         }
 
         logger.LogInformation("Price watcher triggers a run: {Reason}.", decision.Reason);
-        state.TriggerImmediateRun();
+        state.TriggerImmediateRun(RunTrigger.Price, decision.Reason);
     }
 
     private static async Task<List<ForecastPoint>?> ReadForecastAsync(HttpClient http, string entityId, DateTimeOffset now, CancellationToken ct)

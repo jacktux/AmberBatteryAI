@@ -96,14 +96,29 @@ public class OptimizerState
         }
     }
 
-    public void TriggerImmediateRun()
+    private (string Source, string? Reason)? _pendingTrigger;
+
+    /// <summary>Starts the next run now. The source ("price" or "manual") and reason are logged with that run.</summary>
+    public void TriggerImmediateRun(string source = RunTrigger.Manual, string? reason = null)
     {
         lock (_lock)
         {
             if (!IsRunning && !_delayCts.IsCancellationRequested)
             {
+                _pendingTrigger = (source, reason);
                 _delayCts.Cancel();
             }
+        }
+    }
+
+    /// <summary>Why the run that is starting now was started; scheduled when nothing triggered it early.</summary>
+    public (string Source, string? Reason) ConsumeTrigger()
+    {
+        lock (_lock)
+        {
+            var trigger = _pendingTrigger ?? (RunTrigger.Scheduled, null);
+            _pendingTrigger = null;
+            return trigger;
         }
     }
 

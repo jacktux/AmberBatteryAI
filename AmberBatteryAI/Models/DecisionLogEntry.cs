@@ -2,6 +2,13 @@ using System.Text.Json.Serialization;
 
 namespace AmberBatteryAI.Models;
 
+public static class RunTrigger
+{
+    public const string Scheduled = "scheduled";
+    public const string Price = "price";
+    public const string Manual = "manual";
+}
+
 public static class DecisionOutcome
 {
     public const string Applied = "applied";
@@ -16,6 +23,8 @@ public record DecisionLogEntry
     [JsonPropertyName("timestamp")] public DateTimeOffset Timestamp { get; init; }
     [JsonPropertyName("outcome")] public string Outcome { get; init; } = "";
     [JsonPropertyName("note")] public string? Note { get; init; }
+    [JsonPropertyName("trigger")] public string? Trigger { get; init; }
+    [JsonPropertyName("trigger_reason")] public string? TriggerReason { get; init; }
     [JsonPropertyName("model")] public string? Model { get; init; }
     [JsonPropertyName("inputs")] public DecisionInputs? Inputs { get; init; }
     [JsonPropertyName("computed")] public DecisionComputed? Computed { get; init; }

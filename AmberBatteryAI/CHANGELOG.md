@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.0
+
+### Added
+- Every decision now records why the run happened (`trigger`: scheduled, price or manual, and `trigger_reason`), in the JSONL log, `/api/decisions` and two new trailing CSV columns. The Decisions page colours the time green for the normal 30-minute run, red when the price watcher started it, and amber for a manual run (dashboard button or a call to `/api/run-now`). Price runs start their notes with "Triggered by price move: ..." and the reason (for example "feed-in $0.15 is $0.05 above its forecast $0.1"). Older entries stay uncoloured.
+- `POST /api/run-now` accepts an optional `?reason=text` that shows in the notes of that manual run, so a Home Assistant automation can say why it called.
+
 ## 1.13.0 (2026-11-20)
 
 ### Added

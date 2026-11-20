@@ -178,7 +178,8 @@ public class BatteryOptimizerWorker(
 
     private async Task RunOptimizationCycleAsync(CancellationToken ct)
     {
-        var entry = new DecisionLogEntry { Timestamp = DateTimeOffset.Now, Model = config["AiProvider:Model"] ?? DefaultAiModel };
+        var (trigger, triggerReason) = state.ConsumeTrigger();
+        var entry = new DecisionLogEntry { Timestamp = DateTimeOffset.Now, Model = config["AiProvider:Model"] ?? DefaultAiModel, Trigger = trigger, TriggerReason = triggerReason };
         _pending = entry;
 
         var haClient = CreateHaClient();

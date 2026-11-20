@@ -1,4 +1,5 @@
 using System.Text;
+using AmberBatteryAI.Models;
 using AmberBatteryAI.Services;
 using Microsoft.AspNetCore.HttpOverrides;
 
@@ -47,11 +48,11 @@ app.MapGet("/api/status", (OptimizerState state) =>
     return Results.Ok(state.GetSnapshot());
 });
 
-app.MapPost("/api/run-now", (OptimizerState state) =>
+app.MapPost("/api/run-now", (OptimizerState state, string? reason) =>
 {
     if (state == null)
         return Results.BadRequest("OptimizerState is not available.");
-    state.TriggerImmediateRun();
+    state.TriggerImmediateRun(RunTrigger.Manual, string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 200)]);
     return Results.Accepted();
 });
 
