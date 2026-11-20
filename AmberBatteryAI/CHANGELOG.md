@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.0 (2026-11-20)
+
+### Added
+- The Performance page's by-hour chart has a Today / Tomorrow toggle (default Tomorrow, remembered in the browser). Today shows the rest of the day with the same solar, house load, SOC and price detail, using the same projection. Hours already past are not shown; use the Daily Profit & Loss table for actuals. New `today_by_hour` list in `/api/projection`. Display only.
+
 ## 1.12.5 (2026-11-19)
 
 ### Fixed

@@ -172,6 +172,16 @@ public class DayProjectionTests
     }
 
     [Fact]
+    public void TodayByHourCoversOnlyTheRestOfTheDay()
+    {
+        var report = DayProjector.Build(Input(soc: 60, load: 0.5, feedIn: 0.20) with { Solar = Sun(12, 16, 3, 1, 5) }, new RealisedTotals(), null, 7, false);
+
+        Assert.NotEmpty(report.TodayByHour);
+        Assert.All(report.TodayByHour, h => Assert.True(h.Hour >= Noon.Hour));
+        Assert.Contains(report.TodayByHour, h => h.SolarKwh > 0 && h.LoadKwh > 0);
+    }
+
+    [Fact]
     public void WithoutBiasLowAndHighUseOnlyTheSolarEstimates()
     {
         var input = Input(soc: 60, load: 0.5, feedIn: 0.20) with { Solar = Sun(12, 16, 3, 1, 5) };

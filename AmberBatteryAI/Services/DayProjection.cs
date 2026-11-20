@@ -78,6 +78,8 @@ public record DayProjection
     [JsonPropertyName("remainder")] public ProjectionTotals Remainder { get; init; } = new();
     [JsonPropertyName("day_total")] public ProjectionTotals DayTotal { get; init; } = new();
     [JsonPropertyName("hourly")] public List<HourlyProjection> Hourly { get; init; } = new();
+    /// <summary>Rest of today with solar, load, SOC and prices for the chart; hours already past are not included.</summary>
+    [JsonPropertyName("today_by_hour")] public List<TomorrowHour> TodayByHour { get; init; } = new();
     [JsonPropertyName("range")] public ProjectionRange Range { get; init; } = new();
     [JsonPropertyName("tomorrow")] public TomorrowProjection? Tomorrow { get; init; }
     [JsonPropertyName("assumptions")] public ProjectionAssumptions Assumptions { get; init; } = new();
@@ -432,6 +434,30 @@ public static class DayProjector
     }
 
     /// <summary>
+    /// Solar, house load, grid flow with its low/high range, end-of-hour SOC and prices per clock hour. With skipEmpty only
+    /// the hours the simulation actually covered are returned (today: the rest of the day; hours already past are not projected).
+    /// </summary>
+    public static List<TomorrowHour> ByHour(SimulationResult low, SimulationResult plan, SimulationResult high, bool skipEmpty)
+    {
+        double R(double v) => Math.Round(v, 2);
+        var hours = new List<TomorrowHour>();
+        for (int h = 0; h < 24; h++)
+        {
+            if (skipEmpty && plan.HourSolarKwh[h] <= 0 && plan.HourLoadKwh[h] <= 0 && plan.HourImportPrice[h] == 0) continue;
+            double[] imports = { low.HourImportKwh[h], plan.HourImportKwh[h], high.HourImportKwh[h] };
+            double[] exports = { low.HourExportKwh[h], plan.HourExportKwh[h], high.HourExportKwh[h] };
+            hours.Add(new TomorrowHour
+            {
+                Hour = h, SolarKwh = R(plan.HourSolarKwh[h]), LoadKwh = R(plan.HourLoadKwh[h]),
+                ImportKwh = R(imports[1]), ImportLowKwh = R(imports.Min()), ImportHighKwh = R(imports.Max()),
+                ExportKwh = R(exports[1]), ExportLowKwh = R(exports.Min()), ExportHighKwh = R(exports.Max()),
+                SocPercent = Math.Round(plan.HourSocPercent[h], 1), ImportPrice = Math.Round(plan.HourImportPrice[h], 3), FeedInPrice = Math.Round(plan.HourFeedInPrice[h], 3)
+            });
+        }
+        return hours;
+    }
+
+    /// <summary>
     /// Tomorrow by hour, starting from the SOC today's plan leaves at midnight, next to the same day if nothing were sold today.
     /// No planned export is assumed for tomorrow, so the battery charge from tomorrow's solar is shown on its own.
     /// </summary>
@@ -446,19 +472,7 @@ public static class DayProjector
         var high = Run(todayBase.EndSocPercent, ProjectionScenario.High);
         double R(double v) => Math.Round(v, 2);
 
-        var hours = new List<TomorrowHour>();
-        for (int h = 0; h < 24; h++)
-        {
-            double[] imports = { low.HourImportKwh[h], plan.HourImportKwh[h], high.HourImportKwh[h] };
-            double[] exports = { low.HourExportKwh[h], plan.HourExportKwh[h], high.HourExportKwh[h] };
-            hours.Add(new TomorrowHour
-            {
-                Hour = h, SolarKwh = R(plan.HourSolarKwh[h]), LoadKwh = R(plan.HourLoadKwh[h]),
-                ImportKwh = R(imports[1]), ImportLowKwh = R(imports.Min()), ImportHighKwh = R(imports.Max()),
-                ExportKwh = R(exports[1]), ExportLowKwh = R(exports.Min()), ExportHighKwh = R(exports.Max()),
-                SocPercent = Math.Round(plan.HourSocPercent[h], 1), ImportPrice = Math.Round(plan.HourImportPrice[h], 3), FeedInPrice = Math.Round(plan.HourFeedInPrice[h], 3)
-            });
-        }
+        var hours = ByHour(low, plan, high, false);
 
         var withPlan = Case(todayBase.EndSocPercent, plan);
         var withoutSelling = Case(unsold.EndSocPercent, noSell);
@@ -511,6 +525,7 @@ public static class DayProjector
             Remainder = baseCase.Totals,
             DayTotal = dayTotal,
             Hourly = Hourly(low, baseCase, high),
+            TodayByHour = ByHour(low, baseCase, high, true),
             Tomorrow = tomorrow is null ? null : BuildTomorrow(input, baseCase, tomorrow),
             Range = new ProjectionRange
             {

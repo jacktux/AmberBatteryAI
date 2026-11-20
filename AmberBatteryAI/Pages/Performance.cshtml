@@ -27,8 +27,14 @@
         </div>
 
         <div class="card" style="margin-bottom: 16px;">
-            <div class="label">Tomorrow by hour (estimate)</div>
-            <div class="sub">Tomorrow's Solcast solar and your average house load, starting from the battery SOC today's plan leaves at midnight, with tomorrow's Amber prices. No export is planned for tomorrow. Yellow bars are solar kWh, grey bars house load kWh, the blue line is battery SOC at the end of each hour. Hover a bar for import/export and prices. Not used in any decision.</div>
+            <div class="label" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span id="tmrTitle">Tomorrow by hour (estimate)</span>
+                <span>
+                    <button type="button" id="tmrToday" onclick="setHourView('today')">Today</button>
+                    <button type="button" id="tmrTomorrow" onclick="setHourView('tomorrow')">Tomorrow</button>
+                </span>
+            </div>
+            <div class="sub" id="tmrIntro">Tomorrow's Solcast solar and your average house load, starting from the battery SOC today's plan leaves at midnight, with tomorrow's Amber prices. No export is planned for tomorrow. Yellow bars are solar kWh, grey bars house load kWh, the blue line is battery SOC at the end of each hour. Hover a bar for import/export and prices. Not used in any decision.</div>
             <div class="sub" id="tmrVerdict" style="margin-top: 6px; font-weight: 600;"></div>
             <div id="tmrChart" style="overflow-x: auto; margin-top: 6px;"></div>
             <div class="sub" id="tmrSummary" style="margin-top: 8px;"></div>
@@ -246,14 +252,27 @@
             }
         }
 
+        const tomorrowIntro = document.getElementById('tmrIntro').textContent;
+        let hourView = localStorage.getItem('hourView') === 'today' ? 'today' : 'tomorrow';
+        function setHourView(v) { hourView = v; localStorage.setItem('hourView', v); loadTomorrow(); }
+
         async function loadTomorrow() {
             const box = document.getElementById('tmrChart');
+            const isToday = hourView === 'today';
+            document.getElementById('tmrTitle').textContent = isToday ? 'Today by hour (estimate)' : 'Tomorrow by hour (estimate)';
+            document.getElementById('tmrToday').style.opacity = isToday ? 1 : 0.5;
+            document.getElementById('tmrTomorrow').style.opacity = isToday ? 0.5 : 1;
+            document.getElementById('tmrIntro').textContent = isToday
+                ? 'The rest of today from now: Solcast solar, your average house load and today\'s Amber prices, with the planned export. Hours already past are not shown (see the Daily Profit & Loss table for actuals). Yellow bars are solar kWh, grey bars house load, the blue line the battery SOC.'
+                : tomorrowIntro;
             try {
                 const response = await fetch('api/projection');
                 if (response.status === 204) { box.textContent = 'No projection yet: it is built after the next optimizer run.'; return; }
-                const t = (await response.json()).tomorrow;
-                if (!t) { box.textContent = 'No tomorrow projection is available yet.'; return; }
-                const hours = t.hourly;
+                const proj = await response.json();
+                const t = isToday ? null : proj.tomorrow;
+                if (!isToday && !t) { box.textContent = 'No tomorrow projection is available yet.'; return; }
+                const hours = isToday ? (proj.today_by_hour || []) : t.hourly;
+                if (!hours.length) { box.textContent = 'No hours left to project today.'; return; }
                 const ns = 'http://www.w3.org/2000/svg';
                 const max = Math.max(0.5, ...hours.flatMap(h => [h.solar_kwh, h.load_kwh]));
                 const slot = 30, left = 34, top = 8, plot = 140, width = left + hours.length * slot + 6, height = top + plot + 22;
@@ -284,6 +303,11 @@
                 add('polyline', { points: points.join(' '), fill: 'none', stroke: '#58a6ff', 'stroke-width': 2 });
                 box.replaceChildren(svg);
 
+                if (isToday) {
+                    document.getElementById('tmrVerdict').textContent = '';
+                    document.getElementById('tmrSummary').textContent = 'Today ' + proj.date + ': battery ' + proj.start_soc_percent + '% now, about ' + proj.end_soc_percent + '% at midnight.';
+                    return;
+                }
                 const w = t.with_todays_plan, n = t.if_nothing_sold_today;
                 document.getElementById('tmrVerdict').textContent = t.verdict;
                 document.getElementById('tmrSummary').textContent =
