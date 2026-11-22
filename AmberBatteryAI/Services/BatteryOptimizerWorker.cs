@@ -12,6 +12,7 @@ public class BatteryOptimizerWorker(
     OptimizerState state,
     DecisionHistoryService history,
     TelemetryReader telemetry,
+    TelemetryHistoryService telemetryHistory,
     DayProjectionService projection,
     EvGrabService evGrab,
     ILogger<BatteryOptimizerWorker> logger) : BackgroundService
@@ -20,6 +21,77 @@ public class BatteryOptimizerWorker(
 
     // The run in progress, kept so a failure part-way through can still be logged with its context.
     private DecisionLogEntry? _pending;
+
+    private const string LeverInstructions = """
+        LEVERS: in addition to the properties above, include a "levers" object. The system checks every lever against its own safe range, so you cannot lower the floor, sell below break-even, or exceed the forecast; use the levers for judgement the formulas cannot make.
+        "levers": {
+          "strategy": "HOLD" | "SELL_NOW",
+          "forecast_trust": number between 0.7 and 1.0,
+          "reserve_extra_points": number between 0 and 10,
+          "export_price": number (optional),
+          "reason": string (one sentence, at most 25 words)
+        }
+        - strategy: HOLD keeps the energy for the better later window; SELL_NOW sells at the current price. The default is the look-ahead result in best_feed_in_window. Choose the other one only for a reason found in RECENT CONTEXT or the forecasts (for example later prices have been arriving lower than forecast).
+        - forecast_trust: 1.0 trusts later forecast prices as given; lower values discount them. Use less than 1.0 when the forecast accuracy in RECENT CONTEXT shows later prices arriving below forecast.
+        - reserve_extra_points: SOC points kept above the computed export stop SOC. It can only raise the reserve. Use it when load or solar risk looks higher than the computed plan assumes.
+        - export_price: the price at which selling starts, kept near suggested_export_price. Leave it out unless you have a reason.
+        """;
+
+    private string BuildAiContext()
+    {
+        try
+        {
+            return AiContext.Build(DateTimeOffset.Now, history.Read(2), telemetryHistory.BuildDailyPnl(2), telemetryHistory.ReadBias(), telemetryHistory.Read(7));
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not build the recent context for the AI.");
+            return "";
+        }
+    }
+
+    private static AiLeverLog BuildLeverLog(AiAuthority authority, AiLevers? requested, LeverResult? result, bool applied, bool spike, LeverEnvelope? env,
+        double codeStop, double appliedPrice, double appliedStop, double appliedLimit)
+    {
+        string authorityText = authority == AiAuthority.On ? "on" : "shadow";
+        if (spike || result is null || env is null)
+            return new AiLeverLog
+            {
+                Authority = authorityText,
+                Requested = requested,
+                Notes = new List<string> { spike ? "feed-in spike: levers not used" : "no look-ahead data: levers not used" },
+                Summary = spike ? "Feed-in spike: levers not used." : "No look-ahead data: levers not used."
+            };
+
+        string codeStrategy = env.CodeHold ? "HOLD" : "SELL_NOW";
+        double wouldStop = Math.Round(Math.Min(100.0, codeStop + result.ReservePoints), 0);
+        string reason = string.IsNullOrWhiteSpace(requested?.Reason) ? "" : $" Reason: {requested!.Reason!.Trim()}";
+        string? asked = LeverPlanner.Normalize(requested?.Strategy);
+        bool kept = !result.Differs && asked is not null && asked != result.Strategy;
+        string summary = kept
+            ? $"AI asked for {asked} but the system kept {codeStrategy} (${F(env.CodeThreshold)}).{reason}"
+            : applied
+            ? (result.Differs ? $"AI levers applied: {result.Strategy}, export from ${F(result.ExportPrice)} to {F(wouldStop)}% (look-ahead: {codeStrategy} ${F(env.CodeThreshold)}).{reason}" : $"AI levers agree with the look-ahead ({codeStrategy}).{reason}")
+            : (result.Differs ? $"Shadow: AI chose {result.Strategy}, export from ${F(result.ExportPrice)} to {F(wouldStop)}%; applied {codeStrategy}, ${F(appliedPrice)} to {F(appliedStop)}%.{reason}" : $"Shadow: AI agrees with the look-ahead ({codeStrategy}).{reason}");
+        if (result.Notes.Count > 0) summary += " (" + string.Join("; ", result.Notes) + ")";
+
+        return new AiLeverLog
+        {
+            Authority = authorityText,
+            Requested = requested,
+            Strategy = result.Strategy,
+            ExportPrice = result.ExportPrice,
+            ExportStopSoc = wouldStop,
+            ExportPowerLimit = result.PowerLimitWatts ?? appliedLimit,
+            CodeStrategy = codeStrategy,
+            CodeExportPrice = env.CodeThreshold,
+            CodeExportStopSoc = Math.Round(codeStop, 0),
+            Differs = result.Differs,
+            Applied = applied,
+            Notes = result.Notes,
+            Summary = summary
+        };
+    }
 
     private const string OutputInstructions = """
         OUTPUT:
@@ -317,7 +389,7 @@ public class BatteryOptimizerWorker(
             homePower += $" (includes car charging {telemetrySample.EvPowerW.Value / 1000:0.0} kW)";
         homePower += car.PromptText();
 
-        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, maxExportWatts, Math.Max(0.5, config.GetValue("Optimizer:IntervalMinutes", 30) / 60.0), ct);
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold, leverEnvelope) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, maxExportWatts, Math.Max(0.5, config.GetValue("Optimizer:IntervalMinutes", 30) / 60.0), ct);
         string exportPriceHysteresisText = F(exportPriceHysteresis);
         string effectiveSellFloorText = double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double sugForFloor)
             ? ExportPricePlanner.EffectiveSellFloor(sugForFloor, exportPriceHysteresis).ToString("0.000", CultureInfo.InvariantCulture)
@@ -391,7 +463,16 @@ public class BatteryOptimizerWorker(
             prompt = BuildDefaultPrompt(forecastHours, soc, kwhBudgetSummary, batteryPower, homePower, gridStatus, generalSummary, feedInSummary, weatherSummary, solarSummary, hotWaterTemp, floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, hotWaterFull.Text, exportStartSocText, importMinStopSocText, exportPriceHysteresisText, effectiveSellFloorText, F(conservePercent));
         }
 
-        prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
+        var authority = AiAuthorityExtensions.Parse(config["Optimizer:AiAuthority"]);
+        if (authority == AiAuthority.Off)
+        {
+            prompt = $"{prompt.TrimEnd()}\n\n{OutputInstructions}";
+        }
+        else
+        {
+            string aiContext = BuildAiContext();
+            prompt = $"{prompt.TrimEnd()}\n\n{(aiContext.Length > 0 ? aiContext + "\n\n" : "")}{OutputInstructions}\n\n{LeverInstructions}";
+        }
         _pending = entry = entry with { Prompt = prompt };
 
         var decision = await GetAiDecisionAsync(prompt, ct);
@@ -406,6 +487,11 @@ public class BatteryOptimizerWorker(
         }
 
         var aiDecision = decision;
+        var aiLevers = AiLevers.TryParse(aiDecision.Levers);
+        LeverResult? leverResult = null;
+        bool leverApplied = false;
+        bool spikeApplied = false;
+        double codeStopSoc = 0;
         var overrides = new List<string>();
         _pending = entry = entry with { AiResponse = aiDecision };
 
@@ -430,15 +516,33 @@ public class BatteryOptimizerWorker(
                 ? Math.Round(Math.Min(spikeSuggested, currentFeedIn), 3)
                 : Math.Round(currentFeedIn, 3);
             decision = decision with { ExportPrice = spikePrice, ExportStopSoc = SocPlanner.HardFloorPercent + 2 };
+            spikeApplied = true;
             overrides.Add($"Feed-in spike (${F(currentFeedIn)}/kWh): export_price {F(spikePrice)}, export_stop_soc {F(decision.ExportStopSoc)} (hard floor + 2); the floor is not applied.");
         }
         else if (floorParsed && double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double suggestedPrice))
         {
+            codeStopSoc = Math.Min(100.0, floorSoc + 2);
             decision = decision with
             {
                 ExportPrice = suggestedPrice,
-                ExportStopSoc = Math.Min(100.0, floorSoc + 2)
+                ExportStopSoc = codeStopSoc
             };
+
+            // The model's levers move the export price, strategy and reserve only inside the envelope computed before it answered.
+            if (authority != AiAuthority.Off && leverEnvelope is not null)
+            {
+                double surplusNow = double.TryParse(surplusKwh, NumberStyles.Float, CultureInfo.InvariantCulture, out double sv) ? sv : 0;
+                bool canSell = surplusNow > 0 && socNow > SocPlanner.ExportStartSoc(plannedExportStopSoc, exportSocHysteresis);
+                leverResult = LeverPlanner.Evaluate(leverEnvelope, aiLevers, canSell);
+                if (authority == AiAuthority.On)
+                {
+                    leverApplied = true;
+                    decision = decision with { ExportPrice = leverResult.ExportPrice, ExportStopSoc = Math.Min(100.0, codeStopSoc + leverResult.ReservePoints) };
+                    lookAheadHold = leverResult.Hold;
+                    if (leverResult.Differs)
+                        overrides.Add($"AI levers: {leverResult.Strategy}, export_price {F(leverResult.ExportPrice)}{(leverResult.ReservePoints > 0 ? $", +{F(leverResult.ReservePoints)} points reserve" : "")} (look-ahead said {(leverEnvelope.CodeHold ? "HOLD" : "SELL NOW")} at {F(leverEnvelope.CodeThreshold)})");
+                }
+            }
 
             if (Math.Abs(decision.ExportPrice - aiDecision.ExportPrice) > 0.0005)
                 overrides.Add($"export_price {F(aiDecision.ExportPrice)} -> {F(decision.ExportPrice)} (computed)");
@@ -455,6 +559,7 @@ public class BatteryOptimizerWorker(
         // The export power limit is sized by the system: the surplus is given to the best-priced half hours first, up to the maximum discharge power.
         if (int.TryParse(suggestedExportPowerLimit, NumberStyles.Integer, CultureInfo.InvariantCulture, out int suggestedLimit))
         {
+            if (leverApplied && leverResult?.PowerLimitWatts is int leverLimit) suggestedLimit = leverLimit;
             if (Math.Abs(decision.ExportPowerLimit - suggestedLimit) > 0.5)
                 overrides.Add($"export_power_limit {F(decision.ExportPowerLimit)} -> {suggestedLimit} (computed)");
             decision = decision with { ExportPowerLimit = suggestedLimit };
@@ -563,6 +668,7 @@ public class BatteryOptimizerWorker(
         _pending = entry = entry with
         {
             Overrides = overrides,
+            AiLevers = authority == AiAuthority.Off ? null : BuildLeverLog(authority, aiLevers, leverResult, leverApplied, spikeApplied, leverEnvelope, codeStopSoc, safeExportPrice, safeExportStopSoc, safeExportLimit),
             Applied = new DecisionApplied
             {
                 ExportPrice = safeExportPrice,
@@ -903,7 +1009,7 @@ public class BatteryOptimizerWorker(
         }
     }
 
-    private static async Task<(string FloorKwh, string SurplusKwh, string BestWindow, string SuggestedExportPrice, string SuggestedExportPowerLimit, bool LookAheadHold)> BuildComputedValuesAsync(
+    private static async Task<(string FloorKwh, string SurplusKwh, string BestWindow, string SuggestedExportPrice, string SuggestedExportPowerLimit, bool LookAheadHold, LeverEnvelope? Envelope)> BuildComputedValuesAsync(
         HttpClient client,
         string soc,
         double batteryCapacityKwh,
@@ -924,15 +1030,15 @@ public class BatteryOptimizerWorker(
         CancellationToken ct)
     {
         if (!double.TryParse(soc, out double socPct))
-            return ("unknown", "unknown", "unknown", "unknown", "unknown", false);
+            return ("unknown", "unknown", "unknown", "unknown", "unknown", false, null);
 
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
         double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now, conservePercent, solarConfidence, solarSlots, morningSolarStartHour);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
         double sellableKwh = SocPlanner.SellableKwh(storedKwh, floorKwh, batteryCapacityKwh);
-        var (bestWindow, suggested, powerLimit, hold) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, surplusKwh, exportPowerKw, exportPriceHysteresis, homeLoadWatts, maxExportWatts, coverHours, ct);
+        var (bestWindow, suggested, powerLimit, hold, envelope) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, surplusKwh, exportPowerKw, exportPriceHysteresis, homeLoadWatts, maxExportWatts, coverHours, ct);
 
-        return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested, powerLimit, hold);
+        return (floorKwh.ToString("0.##"), surplusKwh.ToString("0.##"), bestWindow, suggested, powerLimit, hold, envelope);
     }
 
     // Conservative daytime assumptions: solar haircut for forecast error, and a daytime house load that
@@ -955,7 +1061,7 @@ public class BatteryOptimizerWorker(
         return SocPlanner.FloorKwh(capacityKwh, avgLoadKw, netSolarKwh, heatingReserveKwh, hour, conservePercent);
     }
 
-    private static async Task<(string Window, string Suggested, string PowerLimit, bool Hold)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double sellableKwh, double surplusKwh, double exportPowerKw, double exportPriceHysteresis, double? homeLoadWatts, double maxExportWatts, double coverHours, CancellationToken ct)
+    private static async Task<(string Window, string Suggested, string PowerLimit, bool Hold, LeverEnvelope? Envelope)> GetBestFeedInWindowAsync(HttpClient client, string feedInEntity, int hoursAhead, double sellableKwh, double surplusKwh, double exportPowerKw, double exportPriceHysteresis, double? homeLoadWatts, double maxExportWatts, double coverHours, CancellationToken ct)
     {
         try
         {
@@ -964,7 +1070,7 @@ public class BatteryOptimizerWorker(
                 !attrs.TryGetProperty("forecast", out var forecastArray) ||
                 forecastArray.ValueKind != JsonValueKind.Array)
             {
-                return ("unknown", "unknown", "unknown", false);
+                return ("unknown", "unknown", "unknown", false, null);
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -995,12 +1101,12 @@ public class BatteryOptimizerWorker(
             }
 
             if (slots.Count == 0)
-                return ("unknown", "unknown", "unknown", false);
+                return ("unknown", "unknown", "unknown", false, null);
 
             var plannerSlots = slots.Select(s => new ExportPricePlanner.Slot(s.Time, s.Value)).ToList();
             double? suggested = ExportPricePlanner.SuggestThreshold(plannerSlots, now, sellableKwh, exportPowerKw);
             if (suggested is null)
-                return ("unknown", "unknown", "unknown", false);
+                return ("unknown", "unknown", "unknown", false, null);
 
             double? livePrice = double.TryParse(json.TryGetProperty("state", out var st) ? st.GetString() : null, NumberStyles.Float, CultureInfo.InvariantCulture, out double lp) ? lp : null;
             var look = ExportPricePlanner.CompareWithLater(plannerSlots, now, exportPowerKw, livePrice, sellableKwh);
@@ -1012,11 +1118,17 @@ public class BatteryOptimizerWorker(
             var bestSmoothed = ExportPricePlanner.Smooth(plannerSlots).MaxBy(s => s.Value)!;
             string window = $"{bestSmoothed.Time.ToLocalTime():HH:mm} @ ${Math.Round(bestSmoothed.Value, 3)}/kWh (30-min average) | look-ahead: {look.Text(t => t.ToLocalTime().ToString("HH:mm"))}";
             window += $" | export ramp: {ramp.LimitWatts} W ({ramp.Text})";
-            return (window, threshold.ToString("0.000"), powerLimit.ToString(), look.Hold);
+            // What the model's levers may choose between: the limit that goes with each strategy, sized the same way as the code's own.
+            int LimitFor(double thr) => ExportPricePlanner.SuggestExportRamp(plannerSlots, now, livePrice, surplusKwh, ExportPricePlanner.EffectiveSellFloor(thr, exportPriceHysteresis), maxExportWatts, homeLoadWatts, coverHours, thr).LimitWatts;
+            double forecastMax = plannerSlots.Max(s => s.Value);
+            double holdThreshold = ExportPricePlanner.ApplyLookAhead(suggested.Value, look with { Hold = true }, livePrice, forecastMax, exportPriceHysteresis);
+            var envelope = new LeverEnvelope(livePrice, suggested.Value, threshold, look.Hold, look.LaterPrice, look.LaterDiscountedPrice, forecastMax, exportPriceHysteresis,
+                LimitFor(holdThreshold), LimitFor(LeverPlanner.SellNowPrice(suggested.Value, livePrice)));
+            return (window, threshold.ToString("0.000"), powerLimit.ToString(), look.Hold, envelope);
         }
         catch
         {
-            return ("unavailable", "unavailable", "unavailable", false);
+            return ("unavailable", "unavailable", "unavailable", false, null);
         }
     }
 

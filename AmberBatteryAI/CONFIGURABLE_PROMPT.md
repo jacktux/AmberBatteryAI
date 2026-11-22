@@ -220,3 +220,6 @@ The prompt is stored in a simple JSON file:
 `{{homePower}}` shows "car not plugged in" when the optional car plug sensor (`ev_plugged_in_entity`) says off; no placeholder or rule wording changes.
 
 `{{solarSummary}}` now ends with a "Tomorrow outlook" text: Solcast energy and peak for tomorrow, the Amber feed-in/import means and best times for tomorrow, and whether tomorrow's solar (after the house load, haircut and `SolarConfidence`) can refill the battery from the `conserve_soc_at_6am` target. No new placeholder is needed; custom prompts receive it through `{{solarSummary}}`.
+## AI levers (`ai_authority`)
+
+From 1.15.0 the add-on appends two things to every prompt, including a saved custom prompt: a RECENT CONTEXT block (last runs, cash, forecast accuracy, measured load by hour) and the LEVERS instructions (a `levers` object in the JSON answer). They are added in code after your text, so nothing in a custom prompt needs to change. The option `ai_authority` is `off`, `shadow` (default, logged only) or `on`. In your own prompt it helps to say that the system sets the prices and stop SOCs, that `mode` is only a label, and to ask the model to spend its reasoning on HOLD or SELL_NOW, the forecast accuracy and the reserve.

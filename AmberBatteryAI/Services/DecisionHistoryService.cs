@@ -34,7 +34,7 @@ public class DecisionHistoryService
         "solar_power_w", "grid_import_w", "grid_export_w", "import_price_now", "feed_in_price_now",
         "active_export_price", "active_export_stop_soc", "active_export_power_limit",
         "active_import_price", "active_import_stop_soc", "active_import_power_limit", "active_hot_water",
-        "overrides", "note", "reasoning", "trigger", "trigger_reason"
+        "overrides", "note", "reasoning", "trigger", "trigger_reason", "ai_levers"
     };
 
     private readonly string _directory;
@@ -168,7 +168,8 @@ public class DecisionHistoryService
                 e.Note,
                 e.AiResponse?.Reasoning,
             e.Trigger,
-            e.TriggerReason
+            e.TriggerReason,
+            e.AiLevers?.Summary
             };
 
             sb.AppendLine(string.Join(',', fields.Select(CsvEscape)));

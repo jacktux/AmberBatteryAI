@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.15.0
+
+### Added
+- The AI can now make judgement calls inside limits the system computes. Besides its usual answer it returns a `levers` object: `strategy` (HOLD or SELL_NOW), `forecast_trust` (0.7-1.0, discounts later forecast prices), `reserve_extra_points` (0-10 SOC points kept above the computed stop SOC), an optional `export_price`, and a one-sentence `reason`. A pure `LeverPlanner` checks every lever against the look-ahead envelope: a HOLD price never drops below live + hysteresis + margin, SELL_NOW is refused when the live price is more than $0.02 below break-even, reserve can only go up, trust is limited to 0.7-1.0, and nothing is applied when there is nothing above the floor to sell. The floor, the 20% hard floor, the spike rules, the master switch, the import safety rules and the Full hot water check stay in code.
+- New option `ai_authority` (`Optimizer:AiAuthority`): `off` (previous behaviour, no levers asked for), `shadow` (the default: the AI is asked for levers and what it would have done is logged, but the code's values are applied), `on` (the levers are applied, with the matching export power limit for the chosen strategy). The Decisions page notes and a new `ai_levers` CSV column show "Shadow: AI chose SELL_NOW, export from $0.092 ...; applied HOLD, $0.131 ..." or "AI levers applied: ...". The JSONL log has an `ai_levers` object with the request, the values that would apply, the look-ahead values and every limit that was applied.
+- When `ai_authority` is not `off` the prompt gets a RECENT CONTEXT block calculated by the system: the last six runs, today's and yesterday's cash, the feed-in forecast accuracy by lead time (actual minus forecast), and the measured house load by hour. The lever instructions and this block are added by the add-on after your prompt, so a saved custom prompt needs no change.
+
+### Notes
+- Suggested use: leave `ai_authority` on `shadow` for a week, then compare the logged AI choices with what was applied and the actual prices before switching to `on`.
+- The AI still chooses hot water Off or Minimal; Full is decided by the system as before.
+
 ## 1.14.0
 
 ### Added

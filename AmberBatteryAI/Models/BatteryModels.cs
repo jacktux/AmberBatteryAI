@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace AmberBatteryAI.Models;
@@ -12,7 +12,8 @@ public record OptimizerDecision(
     [property: JsonPropertyName("import_stop_soc")] double ImportStopSoc,
     [property: JsonPropertyName("import_power_limit")] double ImportPowerLimit,
     [property: JsonPropertyName("hot_water")] string? HotWater,
-    [property: JsonPropertyName("reasoning")] string Reasoning
+    [property: JsonPropertyName("reasoning")] string Reasoning,
+    [property: JsonPropertyName("levers"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Levers = null
 );
 
 public record AppliedDecision(

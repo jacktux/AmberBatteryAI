@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using AmberBatteryAI.Services;
 
 namespace AmberBatteryAI.Models;
 
@@ -34,6 +35,7 @@ public record DecisionLogEntry
     [JsonPropertyName("active_setpoints")] public ActiveSetpoints? ActiveSetpoints { get; init; }
     [JsonPropertyName("feed_in_forecast")] public List<ForecastPoint>? FeedInForecast { get; init; }
     [JsonPropertyName("overrides")] public List<string> Overrides { get; init; } = new();
+    [JsonPropertyName("ai_levers")] public AiLeverLog? AiLevers { get; init; }
     [JsonPropertyName("prompt")] public string? Prompt { get; init; }
 }
 

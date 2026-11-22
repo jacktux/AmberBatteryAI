@@ -42,6 +42,7 @@ if [ -f "$OPTIONS_FILE" ]; then
   export Optimizer__SolarConfidence=$(jq -r '.solar_confidence // 0.6' "$OPTIONS_FILE")
   export HomeAssistant__SolarForecastTomorrowEntity=$(jq -r '.solar_forecast_tomorrow_entity // "sensor.solcast_pv_forecast_forecast_tomorrow"' "$OPTIONS_FILE")
   export Optimizer__MorningSolarStartHour=$(jq -r '.morning_solar_start_hour // 7.5' "$OPTIONS_FILE")
+  export Optimizer__AiAuthority=$(jq -r '.ai_authority // "shadow"' "$OPTIONS_FILE")
   export Optimizer__PriceWatchEnabled=$(jq -r 'if .price_watch_enabled == null then true else .price_watch_enabled end' "$OPTIONS_FILE")
   export Optimizer__PriceWatchShiftPercent=$(jq -r '.price_watch_shift_percent // 10' "$OPTIONS_FILE")
   export Optimizer__PriceWatchMinShift=$(jq -r '.price_watch_min_shift // 0.02' "$OPTIONS_FILE")

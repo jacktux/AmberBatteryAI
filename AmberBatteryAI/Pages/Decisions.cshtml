@@ -55,7 +55,8 @@
                     ? ['Car solar-grab threshold ' + e.computed.ev_grab_base + '% -> ' + e.computed.ev_grab_applied + '% (' + e.computed.ev_grab_reason + ')'] : [];
                     const why = e.trigger === 'price' ? ['Triggered by price move: ' + (e.trigger_reason || 'live price beat its forecast')]
                         : e.trigger === 'manual' ? ['Manual run' + (e.trigger_reason ? ': ' + e.trigger_reason : '')] : [];
-                    const notes = why.concat(e.overrides || [], ev, e.note ? [e.note] : []).join('; ');
+                    const lev = e.ai_levers && e.ai_levers.summary ? [e.ai_levers.summary] : [];
+                    const notes = why.concat(e.overrides || [], ev, lev, e.note ? [e.note] : []).join('; ');
                     const cells = [
                         new Date(e.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
                         result,
