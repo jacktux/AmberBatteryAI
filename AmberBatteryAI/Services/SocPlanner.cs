@@ -74,14 +74,14 @@ public static class SocPlanner
     /// haircut solar (x 0.9 x confidence) meets the daytime load. Without any forecast for the morning it uses
     /// <paramref name="fallbackHour"/>; on a day where solar never covers the load it uses 06:00 + <see cref="MaxMorningSolarSearchHours"/>.
     /// </summary>
-    public static DateTime MorningSolarTakeover(DateTime sixAm, IReadOnlyList<SolarSlot> slots, double avgLoadKw, double daytimeLoadKw, double solarConfidence, double fallbackHour = DefaultMorningSolarStartHour)
+    public static DateTime MorningSolarTakeover(DateTime sixAm, IReadOnlyList<SolarSlot> slots, double avgLoadKw, double daytimeLoadKw, double solarConfidence, double fallbackHour = DefaultMorningSolarStartHour, double morningLoadKw = 0)
     {
         DateTime windowEnd = sixAm.AddHours(MaxMorningSolarSearchHours);
         bool covered = slots.Any(x => x.Start >= sixAm.AddMinutes(-30) && x.Start < windowEnd);
         if (!covered)
             return sixAm.Date.AddHours(Math.Clamp(fallbackHour, 6, 6 + MaxMorningSolarSearchHours));
 
-        double load = Math.Max(avgLoadKw, daytimeLoadKw);
+        double load = Math.Max(Math.Max(avgLoadKw, daytimeLoadKw), morningLoadKw);
         for (DateTime t = sixAm; t < windowEnd; t = t.AddMinutes(15))
         {
             DateTime mid = t.AddMinutes(7.5);
@@ -96,9 +96,9 @@ public static class SocPlanner
     /// Lowest stored energy allowed now so the battery still reaches the morning target at 06:00, from a backward energy
     /// balance over 15-minute steps: each step's required energy is the next step's requirement minus that step's net
     /// energy (haircut solar minus house load), kept between the 20% hard floor and capacity. Unlike the lump-sum
-    /// FloorKwh this respects when the solar arrives. Returns null when there is no solar forecast to use.
+    /// FloorKwh this respects when the solar arrives. <paramref name="morningLoadKw"/> (0 = off) is the house load assumed from 06:00 until solar takes over. Returns null when there is no solar forecast to use.
     /// </summary>
-    public static double? HourlyFloorKwh(double capacityKwh, DateTime now, IReadOnlyList<SolarSlot> slots, double avgLoadKw, double daytimeLoadKw, double heatingReserveKwh, double solarConfidence, double morningTargetPercent = MorningTargetPercent, double morningSolarFallbackHour = DefaultMorningSolarStartHour)
+    public static double? HourlyFloorKwh(double capacityKwh, DateTime now, IReadOnlyList<SolarSlot> slots, double avgLoadKw, double daytimeLoadKw, double heatingReserveKwh, double solarConfidence, double morningTargetPercent = MorningTargetPercent, double morningSolarFallbackHour = DefaultMorningSolarStartHour, double morningLoadKw = 0)
     {
         if (slots.Count == 0)
             return null;
@@ -107,9 +107,12 @@ public static class SocPlanner
         DateTime sixAm = now.Date.AddHours(6);
         if (sixAm <= now)
             sixAm = sixAm.AddDays(1);
-        DateTime end = MorningSolarTakeover(sixAm, slots, avgLoadKw, daytimeLoadKw, solarConfidence, morningSolarFallbackHour);
+        DateTime end = MorningSolarTakeover(sixAm, slots, avgLoadKw, daytimeLoadKw, solarConfidence, morningSolarFallbackHour, morningLoadKw);
 
-        double load(DateTime t) => t.Hour >= 6 && t.Hour < 18 ? Math.Max(avgLoadKw, daytimeLoadKw) : Math.Max(avgLoadKw, 0);
+        // From 06:00 until solar takes over the house draws more than the daytime average (kettle, cooking, hot water, showers).
+        double load(DateTime t) => t >= sixAm && t < end
+            ? Math.Max(Math.Max(avgLoadKw, daytimeLoadKw), morningLoadKw)
+            : t.Hour >= 6 && t.Hour < 18 ? Math.Max(avgLoadKw, daytimeLoadKw) : Math.Max(avgLoadKw, 0);
         double solar(DateTime t) => slots.Where(x => x.Start <= t && t < x.Start.AddMinutes(30)).Select(x => x.Kw).DefaultIfEmpty(0).First();
 
         const double stepHours = 0.25;

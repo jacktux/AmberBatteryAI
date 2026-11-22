@@ -132,6 +132,7 @@ public record ProjectionContext
     public double ConservePercent { get; init; }
     public double SolarConfidence { get; init; }
     public double MorningSolarStartHour { get; init; }
+    public double MorningLoadKw { get; init; }
     public IReadOnlyList<SocPlanner.SolarSlot> SolarSlots { get; init; } = Array.Empty<SocPlanner.SolarSlot>();
     public double ExportPrice { get; init; }
     public double ExportPowerKw { get; init; }
@@ -178,7 +179,7 @@ public class DayProjectionService(TelemetryHistoryService telemetry, ProjectionS
 
             double FloorAt(DateTime t) =>
                 SocPlanner.HourlyFloorKwh(ctx.CapacityKwh, t, ctx.SolarSlots, ctx.AvgLoadKw, ctx.DaytimeLoadKw,
-                    t.TimeOfDay < TimeSpan.FromHours(16.5) ? ctx.HeatingReserveKwh : 0, ctx.SolarConfidence, ctx.ConservePercent, ctx.MorningSolarStartHour) ?? ctx.FloorKwh;
+                    t.TimeOfDay < TimeSpan.FromHours(16.5) ? ctx.HeatingReserveKwh : 0, ctx.SolarConfidence, ctx.ConservePercent, ctx.MorningSolarStartHour, ctx.MorningLoadKw) ?? ctx.FloorKwh;
 
             var bias = telemetry.ReadBias();
             var input = new ProjectionInput

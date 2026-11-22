@@ -337,7 +337,7 @@ public class BatteryOptimizerWorker(
             kwhBudgetSummary = $"{storedKwh} kWh stored of {batteryCapacityKwh} kWh total ({usableAboveReserveKwh} kWh usable above 20% floor; {neededToFullKwh} kWh needed to reach 100%)";
         }
 
-        double avgLoadKw = config.GetValue("Optimizer:AverageLoadKw", 0.75);
+        double avgLoadKw = Math.Clamp(config.GetValue("Optimizer:AverageLoadKw", 0.9), 0.3, 3.0);
         double remainingSolarKwh = 0;
         try
         {
@@ -366,6 +366,7 @@ public class BatteryOptimizerWorker(
         // Tomorrow's forecast tells when solar takes over from the battery in the morning; without it a default hour is used.
         solarSlots.AddRange(await GetSolarSlotsAsync(haClient, solarTomorrowEntity, logger, ct, quiet: true));
         double morningSolarStartHour = Math.Clamp(config.GetValue("Optimizer:MorningSolarStartHour", SocPlanner.DefaultMorningSolarStartHour), 6, 10);
+        double morningLoadKw = Math.Clamp(config.GetValue("Optimizer:MorningLoadKw", 1.5), 0, 5);
 
         var tomorrowFeedIn = await ReadPriceForecastAsync(haClient, feedInEntity, ct);
         var tomorrowImport = await ReadPriceForecastAsync(haClient, generalEntity, ct);
@@ -389,7 +390,7 @@ public class BatteryOptimizerWorker(
             homePower += $" (includes car charging {telemetrySample.EvPowerW.Value / 1000:0.0} kW)";
         homePower += car.PromptText();
 
-        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold, leverEnvelope) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, maxExportWatts, Math.Max(0.5, config.GetValue("Optimizer:IntervalMinutes", 30) / 60.0), ct);
+        var (floorKwh, surplusKwh, bestWindow, suggestedExportPrice, suggestedExportPowerLimit, lookAheadHold, leverEnvelope) = await BuildComputedValuesAsync(haClient, soc, batteryCapacityKwh, remainingSolarKwh, avgLoadKw, hotWaterFull.ReserveKwh, exportPowerKw, feedInEntity, forecastHours, exportPriceHysteresis, homeLoadWatts, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, morningLoadKw, maxExportWatts, Math.Max(0.5, config.GetValue("Optimizer:IntervalMinutes", 30) / 60.0), ct);
         string exportPriceHysteresisText = F(exportPriceHysteresis);
         string effectiveSellFloorText = double.TryParse(suggestedExportPrice, NumberStyles.Float, CultureInfo.InvariantCulture, out double sugForFloor)
             ? ExportPricePlanner.EffectiveSellFloor(sugForFloor, exportPriceHysteresis).ToString("0.000", CultureInfo.InvariantCulture)
@@ -740,6 +741,7 @@ public class BatteryOptimizerWorker(
                 ConservePercent = conservePercent,
                 SolarConfidence = solarConfidence,
                 MorningSolarStartHour = morningSolarStartHour,
+                MorningLoadKw = morningLoadKw,
                 SolarSlots = solarSlots,
                 ExportPrice = safeExportPrice,
                 ExportPowerKw = safeExportLimit / 1000.0,
@@ -1025,6 +1027,7 @@ public class BatteryOptimizerWorker(
         double solarConfidence,
         IReadOnlyList<SocPlanner.SolarSlot> solarSlots,
         double morningSolarStartHour,
+        double morningLoadKw,
         double maxExportWatts,
         double coverHours,
         CancellationToken ct)
@@ -1033,7 +1036,7 @@ public class BatteryOptimizerWorker(
             return ("unknown", "unknown", "unknown", "unknown", "unknown", false, null);
 
         double storedKwh = (socPct / 100.0) * batteryCapacityKwh;
-        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now, conservePercent, solarConfidence, solarSlots, morningSolarStartHour);
+        double floorKwh = CalculateFloorKwh(batteryCapacityKwh, remainingSolarKwh, avgLoadKw, heatingReserveKwh, DateTime.Now, conservePercent, solarConfidence, solarSlots, morningSolarStartHour, morningLoadKw);
         double surplusKwh = Math.Max(0, Math.Round(storedKwh - floorKwh, 2));
         double sellableKwh = SocPlanner.SellableKwh(storedKwh, floorKwh, batteryCapacityKwh);
         var (bestWindow, suggested, powerLimit, hold, envelope) = await GetBestFeedInWindowAsync(client, feedInEntity, hoursAhead, sellableKwh, surplusKwh, exportPowerKw, exportPriceHysteresis, homeLoadWatts, maxExportWatts, coverHours, ct);
@@ -1050,9 +1053,9 @@ public class BatteryOptimizerWorker(
     private static double NetSolarKwhUntil18(double remainingSolarKwh, double avgLoadKw, double hoursTo18, double solarConfidence) =>
         remainingSolarKwh * 0.9 * solarConfidence - Math.Max(avgLoadKw, DaytimeLoadKw) * hoursTo18;
 
-    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, double heatingReserveKwh, DateTime localNow, double conservePercent, double solarConfidence, IReadOnlyList<SocPlanner.SolarSlot> solarSlots, double morningSolarStartHour)
+    private static double CalculateFloorKwh(double capacityKwh, double remainingSolarKwh, double avgLoadKw, double heatingReserveKwh, DateTime localNow, double conservePercent, double solarConfidence, IReadOnlyList<SocPlanner.SolarSlot> solarSlots, double morningSolarStartHour, double morningLoadKw)
     {
-        var hourly = SocPlanner.HourlyFloorKwh(capacityKwh, localNow, solarSlots, avgLoadKw, DaytimeLoadKw, heatingReserveKwh, solarConfidence, conservePercent, morningSolarStartHour);
+        var hourly = SocPlanner.HourlyFloorKwh(capacityKwh, localNow, solarSlots, avgLoadKw, DaytimeLoadKw, heatingReserveKwh, solarConfidence, conservePercent, morningSolarStartHour, morningLoadKw);
         if (hourly.HasValue)
             return hourly.Value;
 

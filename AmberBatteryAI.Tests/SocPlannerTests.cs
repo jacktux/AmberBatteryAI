@@ -72,4 +72,28 @@ public class SocPlannerTests
         double with = SocPlanner.HourlyFloorKwh(40, now, Sun(now, 10, 17, 1.5), 0.75, 1.0, 2, 0.6, 30)!.Value;
         Assert.Equal(without + 2, with, 2);
     }
+
+    [Fact]
+    public void MorningLoadRaisesTheFloorForTheHoursBeforeSolarTakesOver()
+    {
+        var now = new DateTime(2026, 11, 17, 20, 0, 0);
+        var tomorrow = now.Date.AddDays(1);
+        var slots = Sun(tomorrow, 7, 17, 5);
+        double without = SocPlanner.HourlyFloorKwh(40, now, slots, 0.9, 1.0, 0, 0.6, 30, 7.5)!.Value;
+        double with = SocPlanner.HourlyFloorKwh(40, now, slots, 0.9, 1.0, 0, 0.6, 30, 7.5, morningLoadKw: 1.5)!.Value;
+
+        Assert.True(with > without + 0.4, $"{with} vs {without}");
+        Assert.Equal(without, SocPlanner.HourlyFloorKwh(40, now, slots, 0.9, 1.0, 0, 0.6, 30, 7.5, morningLoadKw: 0)!.Value);
+    }
+
+    [Fact]
+    public void ABigMorningLoadMakesSolarTakeOverLater()
+    {
+        var sixAm = new DateTime(2026, 11, 18, 6, 0, 0);
+        var slots = Sun(sixAm, 6, 17, 2.0);
+        var normal = SocPlanner.MorningSolarTakeover(sixAm, slots, 0.9, 1.0, 0.6);
+        var heavy = SocPlanner.MorningSolarTakeover(sixAm, slots, 0.9, 1.0, 0.6, morningLoadKw: 1.8);
+
+        Assert.True(heavy > normal, $"{heavy} vs {normal}");
+    }
 }

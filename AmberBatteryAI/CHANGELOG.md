@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.16.0
+
+### Added
+- `average_load_kw` add-on option (`Optimizer:AverageLoadKw`, 0.3-3 kW). The house load assumed overnight and as the base for the day. The default is now 0.9 kW (was a fixed 0.75 kW in code), matching the measured 0.8-0.9 kW overnight. This raises `floor_kWh` and the overnight stop SOC slightly, about 0.2 kWh per 0.1 kW per night.
+- `morning_load_kw` add-on option (`Optimizer:MorningLoadKw`, 0-5 kW, 0 turns it off). The house load assumed from 06:00 until solar takes over. The default is 1.5 kW (measured: about 1.1 kW on average with spikes to 3-5 kW from showers, cooking and the hot water element). The hourly floor balance uses it for those hours, and the solar-takeover time now waits until solar covers it, so the floor rises by roughly 0.5-1 kWh. This is aimed at mornings like 22 Nov, when the battery fell to 15.8% against a 25% target.
+- Both options also apply to the day projection on the dashboard.
+
+### Notes
+- To keep the old behaviour set `average_load_kw` to 0.75 and `morning_load_kw` to 0.
+- The AI levers (1.15.0) can only add reserve on top of this floor, so a realistic floor matters more than the AI's extra points.
 ## 1.15.0
 
 ### Added
