@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.18.0
+
+### Added
+- Grid buying at prices you set. Until now the battery only bought when the AI chose CHARGE and a later export covered the cost, which almost never happened (about 1.5 kWh in a week). Two prices, both off (0) by default:
+  - `cheap_import_price`: buy whenever the buy price is at or under it and the battery has room. The charge target leaves room for the free solar still to come (100% minus the net solar until 18:00, never below the conserve target + 10), so cheap grid energy does not displace solar. If the battery is also short of energy the target covers the shortfall.
+  - `stretch_import_price` (above the cheap price): buy at or under it only while there is a shortfall, meaning the stored energy is below `floor_kWh` (poor solar), or a plugged-in car on Must Charge or Nice to Have needs more than today''s spare solar plus the battery above the floor can supply. It buys just the shortfall (plus 2 points). A car on "Charge when you can" never counts.
+- When it buys, the system sets the import values itself, whatever the AI said: mode CHARGE, `import_price` (the price rounded up to the next cent, capped by `max_import_price`), `import_stop_soc` (the target), and `import_power_limit` of at least `grid_buy_power_watts` (default 5000 W). The export price is moved up to stay $0.05 above the buy price while buying; if that is not possible within `max_export_price` the buy is cancelled and the notes say so. A feed-in spike over $1.00 skips buying. The decision notes and the new `computed.grid_buy` field say why ("cheap price: buy $0.062 is at or under $0.08 ...").
+- The prompt gets a short GRID BUYING line (the prices and the current decision) so the AI''s reasoning matches what the system does. A saved custom prompt needs no change.
+- The prices can also be changed without restarting by creating the helpers `input_number.cheap_import_price` and `input_number.stretch_import_price` (they override the options when they exist; set one to 0 to turn it off).
+- The price watcher starts an extra run when the buy price falls to the cheap price (once per dip), so a short cheap spell is not missed between the 30-minute runs.
+- New options: `cheap_import_price`, `stretch_import_price`, `grid_buy_power_watts`.
+
+### Notes
+- Starting values from your week of data: cheap $0.05, stretch about $0.14. Buying at a price above what you later sell at loses money, so the stretch price is for security (the floor and the car), not profit. Feed-in was mostly $0.09-0.15 and midday buy prices about $0.19.
+- The import automation only starts when SOC is below the stop SOC minus its hysteresis, so a target at or near the current SOC buys nothing.
 ## 1.17.0
 
 ### Added

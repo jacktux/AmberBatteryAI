@@ -45,6 +45,16 @@ public static class PriceWatchRules
         return new Decision(true, $"the car started charging at {now / 1000:0.0} kW while hot water was on Full");
     }
 
+    /// <summary>True when the buy price has just fallen to the cheap price (an edge, so it fires once per dip).</summary>
+    public static Decision CheapReached(double? previousBuy, double? buyNow, double cheapPrice, TimeSpan sinceLastRun, bool runInProgress)
+    {
+        if (runInProgress) return new Decision(false, "a run is in progress");
+        if (cheapPrice <= 0 || previousBuy is not double prev || buyNow is not double now) return new Decision(false, "no cheap price or reading");
+        if (!(prev > cheapPrice && now <= cheapPrice)) return new Decision(false, "the buy price did not just reach the cheap price");
+        if (sinceLastRun < CarCooldown) return new Decision(false, "a run just finished");
+        return new Decision(true, $"the buy price fell to ${now:0.###}, at or under the cheap price ${cheapPrice:0.###}");
+    }
+
     /// <summary>The forecast price for the slot that contains <paramref name="now"/>, or null when the forecast is stale or empty.</summary>
     public static double? ExpectedPrice(IReadOnlyList<ForecastPoint>? forecast, DateTimeOffset now)
     {

@@ -24,6 +24,7 @@ public class PriceWatcher(
     private double? _baselineBuy;
     private DateTimeOffset? _snapshotOfRun;
     private double? _previousCarWatts;
+    private double? _previousBuy;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -88,6 +89,17 @@ public class PriceWatcher(
 
         double? liveFeedIn = await ReadPriceAsync(http, feedInEntity, ct);
         double? liveBuy = await ReadPriceAsync(http, buyEntity, ct);
+
+        double cheapPrice = await ReadPriceAsync(http, config["HomeAssistant:CheapImportPriceEntity"] ?? "input_number.cheap_import_price", ct)
+            ?? config.GetValue("Optimizer:CheapImportPrice", 0.0);
+        var cheap = PriceWatchRules.CheapReached(_previousBuy, liveBuy, cheapPrice, DateTimeOffset.UtcNow - lastRun.Value, state.IsRunning);
+        if (liveBuy is not null) _previousBuy = liveBuy;
+        if (cheap.Run && !await IsOffAsync(http, masterSwitch, ct))
+        {
+            logger.LogInformation("Price watcher triggers a run: {Reason}.", cheap.Reason);
+            state.TriggerImmediateRun(RunTrigger.Price, cheap.Reason);
+            return;
+        }
 
         var decision = PriceWatchRules.Evaluate(
             liveFeedIn, PriceWatchRules.ExpectedPrice(_feedInForecast, now),

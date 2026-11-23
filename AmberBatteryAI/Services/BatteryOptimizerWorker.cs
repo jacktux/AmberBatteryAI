@@ -388,6 +388,9 @@ public class BatteryOptimizerWorker(
 
         double exportPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ExportPriceHysteresisEntity"] ?? "input_number.export_price_hysteresis", DefaultExportPriceHysteresis, ct);
         double importPriceHysteresis = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ImportPriceHysteresisEntity"] ?? "input_number.import_price_hysteresis", 0, ct);
+        // The cheap and stretch buy prices: the add-on options, or helpers of the same name when they exist (no restart needed to change them).
+        double cheapImportPrice = await ReadHelperNumberAsync(haClient, config["HomeAssistant:CheapImportPriceEntity"] ?? "input_number.cheap_import_price", config.GetValue("Optimizer:CheapImportPrice", 0.0), ct);
+        double stretchImportPrice = await ReadHelperNumberAsync(haClient, config["HomeAssistant:StretchImportPriceEntity"] ?? "input_number.stretch_import_price", config.GetValue("Optimizer:StretchImportPrice", 0.0), ct);
         double? homeLoadWatts = telemetrySample.HomePowerW ?? ParseWatts(homePower);
         if (telemetrySample.EvPowerW is > 200)
             homePower += $" (includes car charging {telemetrySample.EvPowerW.Value / 1000:0.0} kW)";
@@ -413,6 +416,20 @@ public class BatteryOptimizerWorker(
             ? SocPlanner.ImportMinStopSoc(socNow, importSocHysteresis)
             : null;
         string importMinStopSocText = importMinStopSoc is null ? "unknown" : SocPlanner.N(importMinStopSoc.Value);
+
+        var gridBuyPlan = GridBuyPlan.No("not evaluated");
+        if (floorParsed && importMinStopSoc is not null)
+        {
+            double hoursTo18 = Math.Max(0, 18 - DateTime.Now.TimeOfDay.TotalHours);
+            gridBuyPlan = GridBuyPlanner.Plan(new GridBuyInput(
+                double.TryParse(currentImportState, NumberStyles.Float, CultureInfo.InvariantCulture, out double buyNowForPlan) ? buyNowForPlan : null,
+                socNow, batteryCapacityKwh, floorKwhValue,
+                NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, hoursTo18, solarConfidence),
+                conservePercent, cheapImportPrice, stretchImportPrice,
+                config.GetValue("Optimizer:MaxImportPrice", 0.25), config.GetValue("Optimizer:MaxImportStopSoc", 100.0),
+                car.NeedKwh, car.Priority));
+        }
+        bool gridBuyEnabled = cheapImportPrice > 0 || stretchImportPrice > 0;
 
         _pending = entry = entry with
         {
@@ -450,7 +467,8 @@ public class BatteryOptimizerWorker(
                 EvLimit = car.LimitPercent,
                 EvPluggedIn = car.Plugged,
                 EvNeedKwh = car.NeedKwh,
-                EvPriority = car.PriorityText
+                EvPriority = car.PriorityText,
+                GridBuy = gridBuyEnabled ? (gridBuyPlan.Buy ? "BUY - " : "no - ") + gridBuyPlan.Reason : null
             }
         };
 
@@ -477,6 +495,8 @@ public class BatteryOptimizerWorker(
             string aiContext = BuildAiContext();
             prompt = $"{prompt.TrimEnd()}\n\n{(aiContext.Length > 0 ? aiContext + "\n\n" : "")}{OutputInstructions}\n\n{LeverInstructions}";
         }
+        if (gridBuyEnabled)
+            prompt += $"\n\nGRID BUYING (automatic; the system sets the import values itself when it buys): cheap price ${F(cheapImportPrice)}, stretch price ${F(stretchImportPrice)}. Now: {(gridBuyPlan.Buy ? "BUY - " : "no buying - ")}{gridBuyPlan.Reason}.";
         _pending = entry = entry with { Prompt = prompt };
 
         var decision = await GetAiDecisionAsync(prompt, ct);
@@ -609,6 +629,38 @@ public class BatteryOptimizerWorker(
         NoteLimit("import_price", decision.ImportPrice, safeImportPrice, 0.005);
         NoteLimit("import_stop_soc", decision.ImportStopSoc, safeImportStopSoc, 0.5);
         NoteLimit("import_power_limit", decision.ImportPowerLimit, safeImportLimit, 0.5);
+
+        // Grid buying at the user's cheap or stretch price: the system sets the import values, whatever the model said.
+        if (gridBuyPlan.Buy && !feedInSpike)
+        {
+            double buyPrice = Math.Min(gridBuyPlan.Price, maxImpPrice);
+            bool buyOk = true;
+            if (buyPrice > safeExportPrice - 0.05)
+            {
+                // Import must stay $0.05 below the export price; while buying there is nothing to export, so the export price moves up.
+                double neededExport = Math.Round(buyPrice + 0.055, 3);
+                if (neededExport <= maxExpPrice)
+                {
+                    overrides.Add($"export_price {F(safeExportPrice)} -> {F(neededExport)} (kept $0.05 above the grid buy price while buying)");
+                    safeExportPrice = neededExport;
+                }
+                else
+                {
+                    buyOk = false;
+                    overrides.Add($"grid buy cancelled: the buy price ${F(buyPrice)} cannot stay $0.05 below the highest allowed export price ${F(maxExpPrice)}");
+                }
+            }
+
+            if (buyOk)
+            {
+                double buyLimit = Math.Round(Math.Clamp(config.GetValue("Optimizer:GridBuyPowerWatts", 5000.0), 1000, maxWatts), 0);
+                decision = decision with { Mode = "CHARGE" };
+                safeImportPrice = Math.Round(buyPrice, 2);
+                safeImportStopSoc = Math.Round(Math.Clamp(gridBuyPlan.TargetSocPercent, minImpSoc, maxImpSoc), 0);
+                safeImportLimit = Math.Max(safeImportLimit, buyLimit);
+                overrides.Add($"grid buy: {gridBuyPlan.Reason} (import_price {F(safeImportPrice)}, import_stop_soc {F(safeImportStopSoc)}, import_power_limit {F(safeImportLimit)})");
+            }
+        }
 
         // CHARGE means grid charging. If the import price now is above the import threshold, nothing will charge,
         // so the mode is SELF CONSUME and the target is not raised (the model sometimes labels solar charging CHARGE).

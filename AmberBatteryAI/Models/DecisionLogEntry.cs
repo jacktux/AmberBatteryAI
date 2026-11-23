@@ -74,6 +74,7 @@ public record DecisionComputed
     [JsonPropertyName("ev_plugged_in")] public bool? EvPluggedIn { get; init; }
     [JsonPropertyName("ev_need_kwh")] public double? EvNeedKwh { get; init; }
     [JsonPropertyName("ev_priority")] public string? EvPriority { get; init; }
+    [JsonPropertyName("grid_buy")] public string? GridBuy { get; init; }
     [JsonPropertyName("ev_grab_base")] public double? EvGrabBase { get; init; }
     [JsonPropertyName("ev_grab_applied")] public double? EvGrabApplied { get; init; }
     [JsonPropertyName("ev_grab_reason")] public string? EvGrabReason { get; init; }
