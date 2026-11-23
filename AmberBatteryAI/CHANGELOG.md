@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.19.0
+
+### Added
+- `input_select.ev_charge_priority` can now have an **Off** option. With Off the car counts for nothing: no car need in the prompt, the hot water Full check, grid buying or the day projection, and your own `ev_solar_grab_threshold` is left as it is ("Car priority is Off: your own threshold applies."). Before, any unknown option such as "Off" was read as Nice to Have, so the add-on kept lowering the threshold and counting the car's need while the car was meant to be idle. Add the option to the helper in Home Assistant; nothing else needs setting.
+
+### Notes
+- The add-on never starts or stops the wallbox; that is your Node-RED flow. The matching flow change (V4.1: do nothing while the car is unplugged or the priority is Off, and press Start at most once a minute) is a separate file, not part of the add-on.
 ## 1.18.0
 
 ### Added

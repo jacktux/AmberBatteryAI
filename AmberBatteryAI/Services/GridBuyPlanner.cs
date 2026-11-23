@@ -55,7 +55,7 @@ public static class GridBuyPlanner
         double floorShort = Math.Max(0, i.FloorKwh - stored);
 
         double carShort = 0;
-        if (i.CarNeedKwh is double need && need > 0 && i.CarPriority != EvPriority.WhenYouCan)
+        if (i.CarNeedKwh is double need && need > 0 && i.CarPriority != EvPriority.WhenYouCan && i.CarPriority != EvPriority.Off)
             carShort = Math.Max(0, need - Math.Max(0, i.NetSolarKwhUntil18) - Math.Max(0, stored - i.FloorKwh));
 
         double shortfall = floorShort + carShort;

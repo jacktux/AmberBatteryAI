@@ -6,20 +6,21 @@ using System.Text.Json.Serialization;
 
 namespace AmberBatteryAI.Services;
 
-public enum EvPriority { NiceToHave, MustCharge, WhenYouCan }
+public enum EvPriority { NiceToHave, MustCharge, WhenYouCan, Off }
 
 /// <summary>What the car needs: its SOC, the wallbox charge limit and the priority helper. Any value may be unknown.</summary>
 public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Priority, string PriorityText, double BatteryKwh, bool? Plugged = null)
 {
     /// <summary>Energy still needed to reach the charge limit; null when SOC or limit is unknown.</summary>
     /// <summary>Plugged is false only when the plug sensor says the car is not connected: then it needs nothing.</summary>
-    public double? NeedKwh => Plugged == false ? 0 : SocPercent is double s && LimitPercent is double l ? Math.Round(Math.Max(0, l - s) / 100.0 * BatteryKwh, 1) : null;
+    public double? NeedKwh => Plugged == false || Priority == EvPriority.Off ? 0 : SocPercent is double s && LimitPercent is double l ? Math.Round(Math.Max(0, l - s) / 100.0 * BatteryKwh, 1) : null;
     public bool AtLimit => NeedKwh is <= 0;
 
     public static EvPriority ParsePriority(string? text) => text?.Trim().ToLowerInvariant() switch
     {
         "must charge" => EvPriority.MustCharge,
         "charge when you can" => EvPriority.WhenYouCan,
+        "off" => EvPriority.Off,
         _ => EvPriority.NiceToHave
     };
 
@@ -27,6 +28,7 @@ public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Prio
     public string PromptText()
     {
         if (Plugged == false) return " (car not plugged in: no car need counted)";
+        if (Priority == EvPriority.Off) return " (car priority Off: no car need counted)";
         if (SocPercent is null && LimitPercent is null) return "";
         string need = NeedKwh is double n ? (n <= 0 ? "the car is at its charge limit" : $"the car still needs about {n:0.#} kWh") : "the car's need is unknown";
         string soc = SocPercent is double s ? $"SOC {s:0}%" : "SOC unknown";
@@ -52,6 +54,9 @@ public static class EvThresholdPlanner
     {
         double floor = Math.Clamp(i.FloorPercent, SocPlanner.HardFloorPercent, 100);
         double basePct = Math.Clamp(i.BasePercent, 0, 100);
+
+        if (i.Priority == EvPriority.Off)
+            return new(basePct, "Car priority is Off: your own threshold applies.");
 
         if (i.CarAtLimit)
             return new(basePct, "The car is at its charge limit: your own threshold applies.");

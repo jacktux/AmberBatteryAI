@@ -97,4 +97,22 @@ public class EvGrabTests
         Assert.Equal(32, car.NeedKwh);
         Assert.DoesNotContain("not plugged in", car.PromptText());
     }
+
+    [Fact]
+    public void OffMeansTheCarCountsForNothing()
+    {
+        Assert.Equal(EvPriority.Off, EvStatus.ParsePriority("Off"));
+        Assert.Equal(EvPriority.Off, EvStatus.ParsePriority(" off "));
+
+        var car = new EvStatus(24, 80, EvPriority.Off, "Off", 81, true);
+        Assert.Equal(0, car.NeedKwh);
+        Assert.Contains("Off", car.PromptText());
+
+        var d = EvThresholdPlanner.Decide(Input() with { Priority = EvPriority.Off, Hold = true, CarAtLimit = true });
+        Assert.Equal(90, d.Threshold);
+        Assert.Contains("Off", d.Reason);
+
+        Assert.Equal(0, HotWaterPlanner.CarKwhUntil18(new HotWaterPlanner.CarDraw(3.7, 47, true, EvPriority.Off), 12));
+        Assert.False(GridBuyPlanner.Plan(new GridBuyInput(0.15, 60, 40, 14, 10, 25, 0.08, 0.18, 0.25, 100, 40, EvPriority.Off)).Buy);
+    }
 }
