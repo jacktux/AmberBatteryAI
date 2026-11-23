@@ -67,6 +67,13 @@ public class TelemetryReader(IHttpClientFactory httpClientFactory, IConfiguratio
         HotWater = await ReadTextAsync(client, config["HomeAssistant:HotWaterModeEntity"] ?? "input_select.hot_water_mode", ct)
     };
 
+    /// <summary>The car charger power in watts, or null when the entity is unset or unavailable.</summary>
+    public async Task<double?> ReadEvPowerWAsync(HttpClient client, CancellationToken ct)
+    {
+        string? entity = config["HomeAssistant:EvPowerEntity"] ?? "sensor.wattpilot_charging_power";
+        return string.IsNullOrWhiteSpace(entity) ? null : await ReadWattsAsync(client, entity, ct);
+    }
+
     public async Task<List<ForecastPoint>?> ReadFeedInForecastAsync(HttpClient client, int hoursAhead, CancellationToken ct)
     {
         try

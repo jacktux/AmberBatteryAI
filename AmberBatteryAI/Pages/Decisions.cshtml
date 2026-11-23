@@ -6,7 +6,7 @@
         <div class="card" style="margin-bottom: 16px;">
             <div class="label">AI Decision History</div>
             <div class="sub">Every run is saved and published to Home Assistant as <code>sensor.battery_ai_decision</code> (History) and in the Activity panel. Hover a row to see the AI's reasoning.
-            Time colour: <span style="color:#4ade80">green</span> = scheduled run, <span style="color:#f87171">red</span> = triggered by a price move (reason in the notes), <span style="color:#fbbf24">amber</span> = manual run.</div>
+            Time colour: <span style="color:#4ade80">green</span> = scheduled run, <span style="color:#f87171">red</span> = triggered by a price move (reason in the notes), <span style="color:#fbbf24">amber</span> = manual run, <span style="color:#60a5fa">blue</span> = the car started charging.</div>
             <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
                 <a class="button" href="api/decisions?days=7&amp;format=csv">Download CSV summary (7 days)</a>
                 <a class="button" href="api/decisions?days=7&amp;format=jsonl" style="background: var(--muted);">Download full log (7 days)</a>
@@ -54,6 +54,7 @@
                     const ev = e.computed && e.computed.ev_grab_applied != null && e.computed.ev_grab_applied !== e.computed.ev_grab_base
                     ? ['Car solar-grab threshold ' + e.computed.ev_grab_base + '% -> ' + e.computed.ev_grab_applied + '% (' + e.computed.ev_grab_reason + ')'] : [];
                     const why = e.trigger === 'price' ? ['Triggered by price move: ' + (e.trigger_reason || 'live price beat its forecast')]
+                        : e.trigger === 'car' ? ['Triggered by the car: ' + (e.trigger_reason || 'car started charging')]
                         : e.trigger === 'manual' ? ['Manual run' + (e.trigger_reason ? ': ' + e.trigger_reason : '')] : [];
                     const lev = e.ai_levers && e.ai_levers.summary ? [e.ai_levers.summary] : [];
                     const notes = why.concat(e.overrides || [], ev, lev, e.note ? [e.note] : []).join('; ');
@@ -69,7 +70,7 @@
                     const row = body.insertRow();
                     if (e.ai_response && e.ai_response.reasoning) row.title = e.ai_response.reasoning;
                     for (const text of cells) row.insertCell().textContent = text;
-                    const timeColour = { scheduled: '#4ade80', price: '#f87171', manual: '#fbbf24' }[e.trigger];
+                    const timeColour = { scheduled: '#4ade80', price: '#f87171', manual: '#fbbf24', car: '#60a5fa' }[e.trigger];
                     if (timeColour) {
                         const t = row.cells[0];
                         t.style.color = timeColour;

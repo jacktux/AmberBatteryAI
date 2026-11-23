@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.17.0
+
+### Added
+- Hot water Full now gives way to a charging car. The Full check subtracts the energy the car will take until 18:00 (its current power, up to what it still needs; a plugged-in Must Charge car that has not started counts at `ev_assumed_charge_kw`, default 3.7 kW) from the projected battery. With plenty of solar left the check still allows Full; with little, Full becomes Minimal (60 C), which stops the element at once when the tank is already hotter. The detail names the car ("... leaving a projected 2.4 kWh at 18:00, with the car taking about 22 kWh (charging at 3.7 kW) against the 20.8 kWh needed"). Option `ev_hot_water_guard` (default on) turns it off. This was the 23 Nov case: the car started at 3.7 kW needing 47 kWh while hot water stayed on Full.
+- Car watcher: the price watcher also reads the car charger power each minute. When it rises from under 500 W to over 1 kW while hot water is on Full, an extra run starts within a minute (trigger `car`, shown in blue on the Decisions page with the reason). It needs the price watcher on (`price_watch_enabled`) and the car power entity set. Your own Home Assistant car-plug automation can stay; the two overlap safely.
+- `input_number.ev_solar_grab_threshold` now follows the priority more closely (your own value is still the base and is restored when the car is done or the feature is off):
+  - Must Charge: unchanged (the floor, so the car gets all the solar and may draw the battery down).
+  - Charge when you can: still the battery first. New: when SOC is above the conserve target plus `ev_plenty_points` (default 20), the threshold drops to that level (never below the floor, never above the old value), so the car can also take energy from a well-charged battery.
+  - Nice to Have: the threshold is lowered just enough to finish by sunset. Shortfall = the car's remaining need minus today's spare solar (remaining Solcast x 0.9 x solar_confidence minus house load). With no shortfall your value is kept (and a look-ahead HOLD still raises it, as before). The threshold is never above your value; when even the battery above the floor cannot cover the gap it goes to the floor and the reason says so.
+- New options `ev_hot_water_guard`, `ev_assumed_charge_kw`, `ev_plenty_points`.
+
+### Notes
+- The car's need uses `ev_battery_kwh` and the car SOC and charge limit sensors, so those must be right for the Nice to Have rule.
+- The reason for each threshold is in the decision notes (`ev_grab_reason`).
 ## 1.16.0
 
 ### Added

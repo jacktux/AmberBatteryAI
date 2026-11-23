@@ -23,6 +23,7 @@ public class PriceWatcher(
     private double? _baselineFeedIn;
     private double? _baselineBuy;
     private DateTimeOffset? _snapshotOfRun;
+    private double? _previousCarWatts;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -71,6 +72,9 @@ public class PriceWatcher(
         using var http = reader.CreateClient();
         var now = DateTimeOffset.Now;
 
+        if (config.GetValue("Ev:HotWaterGuard", true) && await CheckCarAsync(http, lastRun.Value, ct))
+            return;
+
         if (_snapshotOfRun != lastRun)
         {
             // The forecast the run just used: the prices it was planning against.
@@ -100,6 +104,36 @@ public class PriceWatcher(
 
         logger.LogInformation("Price watcher triggers a run: {Reason}.", decision.Reason);
         state.TriggerImmediateRun(RunTrigger.Price, decision.Reason);
+    }
+
+    /// <summary>Watches the car charger: a run starts when the car begins charging while hot water is on Full. Returns true when a run was triggered.</summary>
+    private async Task<bool> CheckCarAsync(HttpClient http, DateTimeOffset lastRun, CancellationToken ct)
+    {
+        double? watts = await reader.ReadEvPowerWAsync(http, ct);
+        double? previous = _previousCarWatts;
+        if (watts is not null) _previousCarWatts = watts;
+
+        var decision = PriceWatchRules.CarStarted(previous, watts, null, DateTimeOffset.UtcNow - lastRun, state.IsRunning);
+        if (!decision.Run && decision.Reason != "hot water is not on Full") return false;
+
+        string modeEntity = config["HomeAssistant:HotWaterModeEntity"] ?? "input_select.hot_water_mode";
+        string? mode = null;
+        try
+        {
+            var json = await http.GetFromJsonAsync<JsonElement>($"api/states/{modeEntity}", ct);
+            mode = json.TryGetProperty("state", out var s) ? s.GetString() : null;
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        decision = PriceWatchRules.CarStarted(previous, watts, mode, DateTimeOffset.UtcNow - lastRun, state.IsRunning);
+        if (!decision.Run) return false;
+
+        logger.LogInformation("Car watcher triggers a run: {Reason}.", decision.Reason);
+        state.TriggerImmediateRun(RunTrigger.Car, decision.Reason);
+        return true;
     }
 
     private static async Task<List<ForecastPoint>?> ReadForecastAsync(HttpClient http, string entityId, DateTimeOffset now, CancellationToken ct)

@@ -36,7 +36,8 @@ public record EvStatus(double? SocPercent, double? LimitPercent, EvPriority Prio
 }
 
 public record EvGrabInput(double BasePercent, double FloorPercent, bool Hold, double FeedInPrice, bool SolarLeft, double HoldOffsetPercent, double ZeroFeedInPercent,
-    EvPriority Priority = EvPriority.NiceToHave, bool CarAtLimit = false);
+    EvPriority Priority = EvPriority.NiceToHave, bool CarAtLimit = false,
+    double? SocPercent = null, double CapacityKwh = 0, double? CarNeedKwh = null, double? SolarSurplusKwh = null, double ConservePercent = 0, double PlentyPoints = 20);
 
 public record EvGrabDecision(double Threshold, string Reason);
 
@@ -59,10 +60,32 @@ public static class EvThresholdPlanner
             return new(floor, "Must Charge: the car may take energy from the battery down to the floor.");
 
         if (i.Priority == EvPriority.WhenYouCan && !(i.FeedInPrice <= 0 && i.SolarLeft))
-            return new(Math.Min(100, Math.Max(basePct, floor) + Math.Max(0, i.HoldOffsetPercent)), "Charge when you can: the car only takes solar surplus, the battery comes first.");
+        {
+            double battery = Math.Min(100, Math.Max(basePct, floor) + Math.Max(0, i.HoldOffsetPercent));
+            double plenty = Math.Max(floor, i.ConservePercent + Math.Max(0, i.PlentyPoints));
+            if (i.SocPercent is double soc && i.ConservePercent > 0 && soc > i.ConservePercent + Math.Max(0, i.PlentyPoints) && plenty < battery)
+                return new(plenty, $"Charge when you can: the battery has plenty of charge ({soc:0}% is above {plenty:0}%), so the car may take energy from it.");
+            return new(battery, "Charge when you can: the car only takes solar surplus, the battery comes first.");
+        }
 
         if (i.FeedInPrice <= 0 && i.SolarLeft)
             return new(Math.Max(floor, Math.Min(basePct, i.ZeroFeedInPercent)), "Feed-in is zero or negative and solar is still to come: the car may take solar earlier.");
+
+        // Nice to Have: lower the threshold just enough that the solar left today plus the battery above it finishes the car.
+        if (i.Priority == EvPriority.NiceToHave && i.SocPercent is double socNow && i.CapacityKwh > 0 && i.CarNeedKwh is double need && need > 0 && i.SolarSurplusKwh is double surplus)
+        {
+            double shortfall = need - Math.Max(0, surplus);
+            if (shortfall > 0)
+            {
+                double stored = socNow / 100 * i.CapacityKwh;
+                double wanted = (stored - shortfall) / i.CapacityKwh * 100;
+                double threshold = Math.Min(basePct, Math.Max(floor, wanted));
+                string reason = wanted < floor
+                    ? $"Nice to Have: the car needs {need:0.#} kWh and today's spare solar is {Math.Max(0, surplus):0.#} kWh; even the battery above the floor cannot cover the gap, so the car may take energy down to the floor."
+                    : $"Nice to Have: the car needs {need:0.#} kWh and today's spare solar is {Math.Max(0, surplus):0.#} kWh, so the car may take the {shortfall:0.#} kWh gap from the battery above {threshold:0}%.";
+                return new(threshold, reason);
+            }
+        }
 
         if (i.Hold)
             return new(Math.Min(100, Math.Max(basePct, floor) + Math.Max(0, i.HoldOffsetPercent)), "Holding energy for a better export window: the car waits for a higher SOC.");
@@ -127,7 +150,8 @@ public class EvGrabService(PromptStorageService promptStorage, IConfiguration co
 
     private string Entity => config["HomeAssistant:EvGrabThresholdEntity"] ?? "input_number.ev_solar_grab_threshold";
 
-    public async Task<EvGrabResult?> ApplyAsync(HttpClient ha, bool hold, double feedInPrice, bool solarLeft, double floorPercent, EvStatus? car, CancellationToken ct)
+    public async Task<EvGrabResult?> ApplyAsync(HttpClient ha, bool hold, double feedInPrice, bool solarLeft, double floorPercent, EvStatus? car, CancellationToken ct,
+        double? socPercent = null, double capacityKwh = 0, double? solarSurplusKwh = null, double conservePercent = 0)
     {
         if (!Enabled) return await RestoreAsync(ha, ct);
 
@@ -140,7 +164,8 @@ public class EvGrabService(PromptStorageService promptStorage, IConfiguration co
             var decision = EvThresholdPlanner.Decide(new EvGrabInput(
                 basePct, floorPercent, hold, feedInPrice, solarLeft,
                 config.GetValue("Ev:HoldOffsetPercent", 10.0), config.GetValue("Ev:ZeroFeedInThresholdPercent", 60.0),
-                car?.Priority ?? EvPriority.NiceToHave, car?.AtLimit ?? false));
+                car?.Priority ?? EvPriority.NiceToHave, car?.AtLimit ?? false,
+                socPercent, capacityKwh, car?.NeedKwh, solarSurplusKwh, conservePercent, config.GetValue("Ev:PlentyPoints", 20.0)));
 
             double desired = Math.Round(decision.Threshold, 1);
             if (Math.Abs(desired - current) > 0.01 && !await WriteAsync(ha, desired, ct)) return null;

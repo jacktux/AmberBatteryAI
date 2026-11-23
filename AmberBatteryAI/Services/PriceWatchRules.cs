@@ -27,6 +27,24 @@ public static class PriceWatchRules
 
     public record Decision(bool Run, string Reason);
 
+    public const double CarOffWatts = 500;
+    public const double CarOnWatts = 1000;
+    public static readonly TimeSpan CarCooldown = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// True when the car has just started charging (from under 500 W to over 1000 W) while hot water is on Full, so the
+    /// Full check can be redone with the car in it. A previous reading of null (first look) never triggers.
+    /// </summary>
+    public static Decision CarStarted(double? previousWatts, double? nowWatts, string? hotWaterMode, TimeSpan sinceLastRun, bool runInProgress)
+    {
+        if (runInProgress) return new Decision(false, "a run is in progress");
+        if (previousWatts is not double prev || nowWatts is not double now) return new Decision(false, "no car reading");
+        if (!(prev < CarOffWatts && now > CarOnWatts)) return new Decision(false, "the car did not just start charging");
+        if (!string.Equals(hotWaterMode?.Trim(), "Full", StringComparison.OrdinalIgnoreCase)) return new Decision(false, "hot water is not on Full");
+        if (sinceLastRun < CarCooldown) return new Decision(false, "a run just finished");
+        return new Decision(true, $"the car started charging at {now / 1000:0.0} kW while hot water was on Full");
+    }
+
     /// <summary>The forecast price for the slot that contains <paramref name="now"/>, or null when the forecast is stale or empty.</summary>
     public static double? ExpectedPrice(IReadOnlyList<ForecastPoint>? forecast, DateTimeOffset now)
     {

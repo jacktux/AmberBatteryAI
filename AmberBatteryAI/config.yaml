@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.16.0"
+version: "1.17.0"
 slug: amber_battery_ai
 init: false
 arch:
@@ -66,6 +66,9 @@ options:
   ev_priority_entity: "input_select.ev_charge_priority"
   ev_plugged_in_entity: "binary_sensor.garage_ev3_ev_battery_plug"
   ev_battery_kwh: 81
+  ev_hot_water_guard: true
+  ev_assumed_charge_kw: 3.7
+  ev_plenty_points: 20
 schema:
   ai_provider_endpoint: str
   ai_api_key: password
@@ -119,3 +122,6 @@ schema:
   ev_priority_entity: str?
   ev_plugged_in_entity: str?
   ev_battery_kwh: float(10,200)?
+  ev_hot_water_guard: bool?
+  ev_assumed_charge_kw: float(1,22)?
+  ev_plenty_points: float(5,60)?

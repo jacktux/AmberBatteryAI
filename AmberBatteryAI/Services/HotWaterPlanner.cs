@@ -21,6 +21,20 @@ public static class HotWaterPlanner
     /// Battery energy to keep for the heating, so exports do not use it. When FULL is allowed it is the energy to reach 80 C
     /// (zero when the grid pays for it). Otherwise it is the energy still needed to reach 60 C, until heating stops at 16:30.
     /// </param>
+    /// <summary>The car as seen by the Full check: how fast it draws now, what it still needs, and its priority.</summary>
+    public record CarDraw(double PowerKw, double? NeedKwh, bool? Plugged, EvPriority Priority, double AssumedChargeKw = 3.7);
+
+    /// <summary>Energy the car is expected to take from now until 18:00. Charging cars take their current power until their need is met; a Must Charge car that is plugged in but not drawing yet is assumed to start at the assumed wallbox power.</summary>
+    public static double CarKwhUntil18(CarDraw? car, double hourOfDay)
+    {
+        if (car is null || car.Plugged == false) return 0;
+        double hours = Math.Max(0, 18 - hourOfDay);
+        double need = car.NeedKwh ?? double.MaxValue;
+        if (need <= 0) return 0;
+        double kw = car.PowerKw > 0.2 ? car.PowerKw : car.Priority == EvPriority.MustCharge ? Math.Max(0, car.AssumedChargeKw) : 0;
+        return Math.Round(Math.Min(need, kw * hours), 2);
+    }
+
     public record FullAssessment(bool Ok, string Detail, double ReserveKwh)
     {
         public string Text => (Ok ? "YES - " : "NO - ") + Detail;
@@ -34,7 +48,8 @@ public static class HotWaterPlanner
         double requiredKwhAt18,
         double kwhPerDegC,
         double hourOfDay,
-        double? importPriceNow)
+        double? importPriceNow,
+        CarDraw? car = null)
     {
         if (tankC is null)
             return new FullAssessment(false, "tank temperature unavailable", 0);
@@ -59,14 +74,16 @@ public static class HotWaterPlanner
         double storedKwh = socPercent.Value / 100 * capacityKwh;
         double targetKwh = requiredKwhAt18;
         double kwhToFull = (FullTempC - tankC.Value) * kwhPerDegC;
-        double projectedKwh = storedKwh + netSolarKwhUntil18 - kwhToFull;
+        double carKwh = CarKwhUntil18(car, hourOfDay);
+        double projectedKwh = storedKwh + netSolarKwhUntil18 - kwhToFull - carKwh;
+        string carText = carKwh > 0 ? $", with the car taking about {N(carKwh)} kWh ({(car!.PowerKw > 0.2 ? $"charging at {N(car.PowerKw)} kW" : "Must Charge")})" : "";
 
         if (projectedKwh < targetKwh)
-            return new FullAssessment(false, $"06:00 target at risk: heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh, leaving a projected {N(projectedKwh)} kWh at 18:00 against the {N(targetKwh)} kWh needed to reach 30% at 06:00", minimalReserveKwh);
+            return new FullAssessment(false, $"06:00 target at risk: heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh, leaving a projected {N(projectedKwh)} kWh at 18:00{carText} against the {N(targetKwh)} kWh needed to reach 30% at 06:00", minimalReserveKwh);
 
         return new FullAssessment(
             true,
-            $"heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh and the projected battery at 18:00 is still {N(projectedKwh)} kWh (needed {N(targetKwh)} kWh)",
+            $"heating {N(tankC.Value)} C to {FullTempC:0} C needs about {N(kwhToFull)} kWh and the projected battery at 18:00 is still {N(projectedKwh)} kWh{carText} (needed {N(targetKwh)} kWh)",
             kwhToFull);
     }
 

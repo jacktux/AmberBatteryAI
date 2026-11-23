@@ -8,6 +8,7 @@ public static class RunTrigger
     public const string Scheduled = "scheduled";
     public const string Price = "price";
     public const string Manual = "manual";
+    public const string Car = "car";
 }
 
 public static class DecisionOutcome
