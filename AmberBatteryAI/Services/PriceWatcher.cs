@@ -25,6 +25,7 @@ public class PriceWatcher(
     private DateTimeOffset? _snapshotOfRun;
     private double? _previousCarWatts;
     private double? _previousBuy;
+    private bool? _previousForce;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -75,6 +76,17 @@ public class PriceWatcher(
 
         if (config.GetValue("Ev:HotWaterGuard", true) && await CheckCarAsync(http, lastRun.Value, ct))
             return;
+
+        string forceEntity = config["HomeAssistant:ForceChargeEntity"] ?? "input_boolean.force_grid_charge";
+        bool forceOn = await IsOnAsync(http, forceEntity, ct);
+        var force = PriceWatchRules.ForceTurnedOn(_previousForce, forceOn, state.IsRunning);
+        _previousForce = forceOn;
+        if (force.Run && !await IsOffAsync(http, masterSwitch, ct))
+        {
+            logger.LogInformation("Run triggered: {Reason}.", force.Reason);
+            state.TriggerImmediateRun(RunTrigger.Manual, force.Reason);
+            return;
+        }
 
         if (_snapshotOfRun != lastRun)
         {
@@ -172,6 +184,19 @@ public class PriceWatcher(
         catch (Exception) when (!ct.IsCancellationRequested)
         {
             return null;
+        }
+    }
+
+    private static async Task<bool> IsOnAsync(HttpClient http, string entityId, CancellationToken ct)
+    {
+        try
+        {
+            var json = await http.GetFromJsonAsync<JsonElement>($"api/states/{entityId}", ct);
+            return json.TryGetProperty("state", out var s) && string.Equals(s.GetString(), "on", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            return false;
         }
     }
 

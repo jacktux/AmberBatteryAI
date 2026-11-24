@@ -42,6 +42,22 @@ public static class GridBuyPlanner
     private static string P(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
     private static string K(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// The user's "force grid charge" switch: charge to the target SOC at any buy price up to the maximum import price,
+    /// whatever the floor, solar or car say. <see cref="GridBuyPlan.Buy"/> is false with a reason when there is nothing to do.
+    /// </summary>
+    public static GridBuyPlan Force(double socPercent, double targetSocPercent, double maxImportStopSoc, double? buyNow, double maxImportPrice)
+    {
+        double target = Math.Round(Math.Clamp(Math.Min(targetSocPercent, Math.Clamp(maxImportStopSoc, 0, 100)), 0, 100), 0);
+        if (socPercent >= target - MinRoomPoints)
+            return GridBuyPlan.No($"force charge: the battery ({K(socPercent)}%) is already at the {K(target)}% target");
+        if (buyNow is not double buy)
+            return GridBuyPlan.No("force charge: no buy price");
+        if (buy > maxImportPrice)
+            return GridBuyPlan.No($"force charge: buy price ${P(buy)} is above the maximum import price ${P(maxImportPrice)}, so nothing can charge");
+        return new GridBuyPlan(true, Up(maxImportPrice), target, 0, $"force charge on: charging to {K(target)}% at up to ${P(maxImportPrice)} (buy ${P(buy)})");
+    }
+
     public static GridBuyPlan Plan(GridBuyInput i)
     {
         double maxPrice = i.MaxImportPrice;
@@ -55,7 +71,7 @@ public static class GridBuyPlanner
         double floorShort = Math.Max(0, i.FloorKwh - stored);
 
         double carShort = 0;
-        if (i.CarNeedKwh is double need && need > 0 && i.CarPriority != EvPriority.WhenYouCan && i.CarPriority != EvPriority.Off)
+        if (i.CarNeedKwh is double need && need > 0 && i.CarPriority != EvPriority.WhenYouCan)
             carShort = Math.Max(0, need - Math.Max(0, i.NetSolarKwhUntil18) - Math.Max(0, stored - i.FloorKwh));
 
         double shortfall = floorShort + carShort;

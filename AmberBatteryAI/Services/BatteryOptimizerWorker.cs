@@ -429,7 +429,31 @@ public class BatteryOptimizerWorker(
                 config.GetValue("Optimizer:MaxImportPrice", 0.25), config.GetValue("Optimizer:MaxImportStopSoc", 100.0),
                 car.NeedKwh, car.Priority));
         }
-        bool gridBuyEnabled = cheapImportPrice > 0 || stretchImportPrice > 0;
+        // Force grid charge: a switch and a target SOC, both helpers. It beats the cheap and stretch rules and the floor.
+        string forceEntity = config["HomeAssistant:ForceChargeEntity"] ?? "input_boolean.force_grid_charge";
+        bool forceOn = false;
+        try { forceOn = string.Equals((await GetEntityStateAsync(haClient, forceEntity, ct)).Trim(), "on", StringComparison.OrdinalIgnoreCase); }
+        catch (Exception ex) when (!ct.IsCancellationRequested) { logger.LogDebug(ex, "Could not read {Entity}; force grid charge counts as off.", forceEntity); }
+        double forceTarget = await ReadHelperNumberAsync(haClient, config["HomeAssistant:ForceChargeTargetEntity"] ?? "input_number.force_charge_target_soc", config.GetValue("Optimizer:ForceChargeTargetSoc", 90.0), ct);
+        bool forceBuying = false;
+        if (forceOn)
+        {
+            var forcePlan = GridBuyPlanner.Force(socNow, forceTarget, config.GetValue("Optimizer:MaxImportStopSoc", 100.0),
+                double.TryParse(currentImportState, NumberStyles.Float, CultureInfo.InvariantCulture, out double buyNowForForce) ? buyNowForForce : null,
+                config.GetValue("Optimizer:MaxImportPrice", 0.25));
+            if (forcePlan.Buy) { gridBuyPlan = forcePlan; forceBuying = true; }
+            else
+            {
+                gridBuyPlan = gridBuyPlan.Buy ? gridBuyPlan : forcePlan;
+                if (forcePlan.Reason.Contains("already at"))
+                {
+                    // The target is reached: turn the switch off so a later dip does not charge again unasked.
+                    try { await haClient.PostAsJsonAsync("api/services/input_boolean/turn_off", new { entity_id = forceEntity }, ct); }
+                    catch (Exception ex) when (!ct.IsCancellationRequested) { logger.LogWarning(ex, "Could not turn {Entity} off.", forceEntity); }
+                }
+            }
+        }
+        bool gridBuyEnabled = cheapImportPrice > 0 || stretchImportPrice > 0 || forceOn;
 
         _pending = entry = entry with
         {
@@ -631,7 +655,7 @@ public class BatteryOptimizerWorker(
         NoteLimit("import_power_limit", decision.ImportPowerLimit, safeImportLimit, 0.5);
 
         // Grid buying at the user's cheap or stretch price: the system sets the import values, whatever the model said.
-        if (gridBuyPlan.Buy && !feedInSpike)
+        if (gridBuyPlan.Buy && (!feedInSpike || forceBuying))
         {
             double buyPrice = Math.Min(gridBuyPlan.Price, maxImpPrice);
             bool buyOk = true;

@@ -45,6 +45,14 @@ public static class PriceWatchRules
         return new Decision(true, $"the car started charging at {now / 1000:0.0} kW while hot water was on Full");
     }
 
+    /// <summary>True when the force-charge switch has just been turned on, so the run starts at once rather than at the next 30-minute run.</summary>
+    public static Decision ForceTurnedOn(bool? wasOn, bool isOn, bool runInProgress)
+    {
+        if (runInProgress) return new Decision(false, "a run is in progress");
+        if (wasOn == false && isOn) return new Decision(true, "force grid charge was turned on");
+        return new Decision(false, "force grid charge did not just turn on");
+    }
+
     /// <summary>True when the buy price has just fallen to the cheap price (an edge, so it fires once per dip).</summary>
     public static Decision CheapReached(double? previousBuy, double? buyNow, double cheapPrice, TimeSpan sinceLastRun, bool runInProgress)
     {

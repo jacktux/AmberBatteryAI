@@ -27,7 +27,7 @@ public static class HotWaterPlanner
     /// <summary>Energy the car is expected to take from now until 18:00. Charging cars take their current power until their need is met; a Must Charge car that is plugged in but not drawing yet is assumed to start at the assumed wallbox power.</summary>
     public static double CarKwhUntil18(CarDraw? car, double hourOfDay)
     {
-        if (car is null || car.Plugged == false || car.Priority == EvPriority.Off) return 0;
+        if (car is null || car.Plugged == false) return 0;
         double hours = Math.Max(0, 18 - hourOfDay);
         double need = car.NeedKwh ?? double.MaxValue;
         if (need <= 0) return 0;
