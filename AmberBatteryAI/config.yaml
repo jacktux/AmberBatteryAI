@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.19.0"
+version: "1.20.0"
 slug: amber_battery_ai
 init: false
 arch:
@@ -52,6 +52,7 @@ options:
   cheap_import_price: 0
   stretch_import_price: 0
   grid_buy_power_watts: 5000
+  force_charge_target_soc: 90
   price_watch_enabled: true
   price_watch_shift_percent: 10
   price_watch_min_shift: 0.02
@@ -111,6 +112,7 @@ schema:
   cheap_import_price: float(0,1)?
   stretch_import_price: float(0,1)?
   grid_buy_power_watts: int(1000,30000)?
+  force_charge_target_soc: int(30,100)?
   price_watch_enabled: bool?
   price_watch_shift_percent: float(1,100)?
   price_watch_min_shift: float(0,1)?

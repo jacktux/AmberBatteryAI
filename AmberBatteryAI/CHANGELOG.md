@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.20.0
+
+### Added
+- Force grid charge. Create two helpers in Home Assistant: `input_boolean.force_grid_charge` and `input_number.force_charge_target_soc` (30-100; the option `force_charge_target_soc`, default 90, is used when the helper does not exist). While the switch is on and SOC is below the target, every run sets mode CHARGE at the maximum import price (`max_import_price`), `import_stop_soc` to the target (capped by `max_import_stop_soc`) and `import_power_limit` to at least `grid_buy_power_watts`, whatever the floor, solar, car, cheap or stretch price or the AI say. A feed-in spike does not stop it. The export price is moved up to stay $0.05 above the buy price while it charges. The switch turns itself off when the target is reached; when the buy price is above the maximum import price nothing can charge and the notes say so.
+- Turning the switch on starts a run within a minute (the price watcher sees it), so the charge starts without waiting for the next 30-minute run.
+- The master switch and the on-grid check still apply: with the master switch off or the grid down, nothing is forced. The decision notes and `computed.grid_buy` show "force charge on: charging to 90% at up to $0.25 (buy $0.22)".
 ## 1.19.0
 
 ### Added

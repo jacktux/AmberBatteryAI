@@ -107,3 +107,41 @@ public class CheapReachedTests
         Assert.False(PriceWatchRules.CheapReached(0.12, 0.07, 0.08, TimeSpan.FromSeconds(20), false).Run);
     }
 }
+
+public class ForceChargeTests
+{
+    [Fact]
+    public void ForceChargesToTheTargetAtTheMaximumPrice()
+    {
+        var plan = GridBuyPlanner.Force(40, 90, 100, 0.22, 0.25);
+        Assert.True(plan.Buy, plan.Reason);
+        Assert.Equal(0.25, plan.Price);
+        Assert.Equal(90, plan.TargetSocPercent);
+    }
+
+    [Fact]
+    public void ForceIsCappedByTheMaximumImportStopSoc() =>
+        Assert.Equal(95, GridBuyPlanner.Force(40, 100, 95, 0.1, 0.25).TargetSocPercent);
+
+    [Fact]
+    public void ForceDoesNothingAtTheTargetOrAboveTheMaximumPrice()
+    {
+        var done = GridBuyPlanner.Force(89.5, 90, 100, 0.1, 0.25);
+        Assert.False(done.Buy);
+        Assert.Contains("already at", done.Reason);
+
+        var dear = GridBuyPlanner.Force(40, 90, 100, 0.40, 0.25);
+        Assert.False(dear.Buy);
+        Assert.Contains("maximum import price", dear.Reason);
+
+        Assert.False(GridBuyPlanner.Force(40, 90, 100, null, 0.25).Buy);
+    }
+
+    [Theory]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, false)]
+    [InlineData(null, true, false)]
+    [InlineData(false, false, false)]
+    public void TheWatcherFiresOnlyWhenTheSwitchTurnsOn(bool? was, bool now, bool expected) =>
+        Assert.Equal(expected, PriceWatchRules.ForceTurnedOn(was, now, false).Run);
+}
