@@ -1,6 +1,6 @@
 # AmberBatteryAI build specification
 
-This is a prompt you can give a coding AI to rebuild the app from scratch. It reflects version 1.5.2. If it disagrees with the code or `AmberBatteryAI/CHANGELOG.md`, the code and changelog are correct.
+This is a prompt you can give a coding AI to rebuild the app from scratch. It reflects version 1.5.2 plus later additions listed in `AmberBatteryAI/CHANGELOG.md` (levers, price watcher, grid buying, EV awareness, config options). Option names, defaults and descriptions live in `AmberBatteryAI/config.yaml` and `translations/en.yaml`. If it disagrees with the code or `AmberBatteryAI/CHANGELOG.md`, the code and changelog are correct.
 
 ---
 

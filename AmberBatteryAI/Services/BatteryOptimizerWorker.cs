@@ -275,7 +275,7 @@ public class BatteryOptimizerWorker(
         string batteryPowerEntity = config["HomeAssistant:BatteryPowerEntity"] ?? "sensor.la_electrical_battery_power";
         string homePowerEntity = config["HomeAssistant:HomePowerEntity"] ?? "sensor.la_sigenstor1_home_power";
         string gridStatusEntity = config["HomeAssistant:GridStatusEntity"] ?? "sensor.la_sigenstor_1_grid_status";
-        double batteryCapacityKwh = config.GetValue("HomeAssistant:BatteryCapacityKwh", 16.0);
+        double batteryCapacityKwh = config.GetValue("HomeAssistant:BatteryCapacityKwh", 40.0);
 
         string generalEntity = config["HomeAssistant:GeneralPriceEntity"] ?? "sensor.amber_express_home_general_price";
         string feedInEntity = config["HomeAssistant:FeedInPriceEntity"] ?? "sensor.amber_express_home_feed_in_price";
@@ -473,6 +473,12 @@ public class BatteryOptimizerWorker(
         }
         bool gridBuyEnabled = cheapImportPrice > 0 || stretchImportPrice > 0 || forceOn || lookAheadBuy;
 
+        // max_import_price caps every purchase price; say so when it is lower than a price the user set.
+        var cappedPrices = new List<string>();
+        if (cheapImportPrice > maxImportPriceOpt) cappedPrices.Add($"cheap price ${F(cheapImportPrice)} is capped at max_import_price ${F(maxImportPriceOpt)}");
+        if (stretchImportPrice > maxImportPriceOpt) cappedPrices.Add($"stretch price ${F(stretchImportPrice)} is capped at max_import_price ${F(maxImportPriceOpt)}");
+        string capNote = cappedPrices.Count > 0 ? " (" + string.Join("; ", cappedPrices) + ")" : "";
+
         _pending = entry = entry with
         {
             Telemetry = telemetrySample,
@@ -510,7 +516,7 @@ public class BatteryOptimizerWorker(
                 EvPluggedIn = car.Plugged,
                 EvNeedKwh = car.NeedKwh,
                 EvPriority = car.PriorityText,
-                GridBuy = gridBuyEnabled ? (gridBuyPlan.Buy ? "BUY - " : "no - ") + gridBuyPlan.Reason : null
+                GridBuy = gridBuyEnabled ? (gridBuyPlan.Buy ? "BUY - " : "no - ") + gridBuyPlan.Reason + capNote : null
             }
         };
 

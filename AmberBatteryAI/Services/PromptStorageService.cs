@@ -132,30 +132,6 @@ public class PromptStorageService
     }
 
     /// <summary>
-    /// Delete the prompt storage file.
-    /// </summary>
-    public bool DeletePromptFile()
-    {
-        lock (_lockObject)
-        {
-            try
-            {
-                if (File.Exists(_filePath))
-                {
-                    File.Delete(_filePath);
-                    _logger.LogInformation("Deleted prompt storage file at {FilePath}", _filePath);
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to delete prompt file at {FilePath}", _filePath);
-                return false;
-            }
-        }
-    }
-
-    /// <summary>
     /// Get the full file path for the storage file (for diagnostics).
     /// </summary>
     public string GetStoragePath() => _filePath;

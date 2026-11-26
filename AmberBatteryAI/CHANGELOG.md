@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.23.0
+
+### Changed
+- Deep clean of the configuration. Defaults now agree everywhere (config.yaml, run.sh, code): `battery_capacity_kwh` 40, `ev_control_enabled` off, `ev_zero_feed_in_threshold_percent` 30. run.sh is regenerated so every option has a fallback equal to its config.yaml default, and a unit test keeps config.yaml, run.sh, the code and the translations in step.
+- The decision notes now say when `max_import_price` caps your cheap or stretch price.
+
+### Added
+- New optional settings for values that were hard-coded: `hot_water_tank_temp_entity`, `hot_water_mode_entity`, `master_switch_entity`, `decision_sensor_entity`, `report_days`, `decision_log_retention_days` (defaults are the old values).
+- `translations/en.yaml` (a name and description for each option in the add-on UI) and `DOCS.md`.
+
+### Removed
+- Unused code and files: `ExportPowerLimitKw`, `DeletePromptFile`, `Index.OnPostRunNow`, a committed Visual Studio cache file, and a dead `BaseUrl` launch variable.
+
 ## 1.22.0
 
 ### Added

@@ -1,6 +1,6 @@
 name: Amber Battery AI
 description: AI-powered wholesale electricity arbitrage optimizer for Sigenstor and Amber Express
-version: "1.22.0"
+version: "1.23.0"
 slug: amber_battery_ai
 init: false
 arch:
@@ -21,7 +21,7 @@ options:
   battery_power_entity: "sensor.la_electrical_battery_power"
   home_power_entity: "sensor.la_sigenstor1_home_power"
   grid_status_entity: "sensor.la_sigenstor_1_grid_status"
-  battery_capacity_kwh: 16.0
+  battery_capacity_kwh: 40.0
   general_price_entity: "sensor.amber_express_home_general_price"
   feed_in_price_entity: "sensor.amber_express_home_feed_in_price"
   weather_entity: "weather.welby_hourly"
@@ -30,6 +30,10 @@ options:
   grid_power_entity: "sensor.la_sigenstor1_grid_power"
   solar_power_entity: "sensor.la_sigenstor1_solar_power"
   grid_power_positive_is_import: true
+  hot_water_tank_temp_entity: "sensor.la_hot_water_tank_temperature_2"
+  hot_water_mode_entity: "input_select.hot_water_mode"
+  master_switch_entity: "input_boolean.amber_battery_ai_optimizer"
+  decision_sensor_entity: "sensor.battery_ai_decision"
   interval_minutes: 30
   forecast_hours: 12
   min_export_price: 0.08
@@ -60,9 +64,11 @@ options:
   price_watch_min_shift: 0.02
   price_watch_cooldown_minutes: 10
   telemetry_sample_minutes: 5
+  report_days: 14
+  decision_log_retention_days: 30
   ev_power_entity: "sensor.wattpilot_charging_power"
   ev_subtract_from_load: true
-  ev_control_enabled: true
+  ev_control_enabled: false
   ev_grab_threshold_entity: "input_number.ev_solar_grab_threshold"
   ev_hold_offset_percent: 10
   ev_zero_feed_in_threshold_percent: 30
@@ -92,6 +98,10 @@ schema:
   grid_power_entity: str?
   solar_power_entity: str?
   grid_power_positive_is_import: bool?
+  hot_water_tank_temp_entity: str?
+  hot_water_mode_entity: str?
+  master_switch_entity: str?
+  decision_sensor_entity: str?
   interval_minutes: int(5,120)
   forecast_hours: int(4,24)
   min_export_price: float
@@ -122,6 +132,8 @@ schema:
   price_watch_min_shift: float(0,1)?
   price_watch_cooldown_minutes: int(1,120)?
   telemetry_sample_minutes: int(0,60)?
+  report_days: int(1,60)?
+  decision_log_retention_days: int(1,365)?
   ev_power_entity: str?
   ev_subtract_from_load: bool?
   ev_control_enabled: bool?

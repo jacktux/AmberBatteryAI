@@ -163,7 +163,7 @@ public class EvGrabService(PromptStorageService promptStorage, IConfiguration co
 
             var decision = EvThresholdPlanner.Decide(new EvGrabInput(
                 basePct, floorPercent, hold, feedInPrice, solarLeft,
-                config.GetValue("Ev:HoldOffsetPercent", 10.0), config.GetValue("Ev:ZeroFeedInThresholdPercent", 60.0),
+                config.GetValue("Ev:HoldOffsetPercent", 10.0), config.GetValue("Ev:ZeroFeedInThresholdPercent", 30.0),
                 car?.Priority ?? EvPriority.NiceToHave, car?.AtLimit ?? false,
                 socPercent, capacityKwh, car?.NeedKwh, solarSurplusKwh, conservePercent, config.GetValue("Ev:PlentyPoints", 20.0)));
 

@@ -1,0 +1,202 @@
+configuration:
+  ai_provider_endpoint:
+    name: "AI endpoint"
+    description: "OpenAI-compatible chat completions URL (default Google Gemini)."
+  ai_api_key:
+    name: "AI API key"
+    description: "API key for the AI provider."
+  ai_model:
+    name: "AI model"
+    description: "Model name sent to the AI provider."
+  battery_soc_entity:
+    name: "Battery SOC sensor"
+    description: "Battery state of charge in percent."
+  battery_power_entity:
+    name: "Battery power sensor"
+    description: "Battery power in kW (charging/discharging)."
+  home_power_entity:
+    name: "Home power sensor"
+    description: "Home consumption in kW."
+  grid_status_entity:
+    name: "Grid status sensor"
+    description: "Reports whether the home is on grid or off grid; the add-on skips runs when off grid."
+  battery_capacity_kwh:
+    name: "Battery capacity (kWh)"
+    description: "Usable battery capacity, used for every energy calculation."
+  general_price_entity:
+    name: "Buy price sensor"
+    description: "Amber general (import) price in $/kWh."
+  feed_in_price_entity:
+    name: "Feed-in price sensor"
+    description: "Amber feed-in (export) price in $/kWh."
+  weather_entity:
+    name: "Weather entity"
+    description: "Hourly weather forecast used in the prompt."
+  solar_forecast_entity:
+    name: "Solar forecast today"
+    description: "Solcast forecast for today (kWh)."
+  solar_forecast_remaining_entity:
+    name: "Solar forecast remaining"
+    description: "Solcast forecast for the rest of today (kWh)."
+  grid_power_entity:
+    name: "Grid power sensor"
+    description: "Optional. Grid power in kW, used by the dashboard and price watcher."
+  solar_power_entity:
+    name: "Solar power sensor"
+    description: "Optional. Solar generation in kW."
+  grid_power_positive_is_import:
+    name: "Grid power positive is import"
+    description: "Turn off if your grid sensor reports export as positive."
+  hot_water_tank_temp_entity:
+    name: "Hot water tank temperature"
+    description: "Optional. Tank temperature sensor used by the hot water planner."
+  hot_water_mode_entity:
+    name: "Hot water mode helper"
+    description: "Optional. input_select the add-on sets (OFF / MINIMAL / FULL)."
+  master_switch_entity:
+    name: "Master switch"
+    description: "Optional. input_boolean that turns the optimizer on and off."
+  decision_sensor_entity:
+    name: "Decision sensor"
+    description: "Optional. Sensor the add-on publishes its latest decision to."
+  interval_minutes:
+    name: "Run interval (minutes)"
+    description: "How often the optimizer runs."
+  forecast_hours:
+    name: "Forecast hours"
+    description: "Hours of price forecast given to the planner."
+  min_export_price:
+    name: "Minimum export price"
+    description: "Lowest export price the add-on will set ($/kWh)."
+  max_export_price:
+    name: "Maximum export price"
+    description: "Highest export price the add-on will set ($/kWh)."
+  min_export_stop_soc:
+    name: "Minimum export stop SOC"
+    description: "Lowest battery SOC at which exporting stops (hard floor)."
+  max_export_stop_soc:
+    name: "Maximum export stop SOC"
+    description: "Highest export stop SOC allowed."
+  min_import_price:
+    name: "Minimum import price"
+    description: "Lowest import price the add-on will set (can be negative)."
+  max_import_price:
+    name: "Maximum import price"
+    description: "Cap on every price the add-on will pay to buy from the grid, including cheap, stretch, look-ahead and force prices."
+  min_import_stop_soc:
+    name: "Minimum import stop SOC"
+    description: "Floor for the SOC at which grid charging stops."
+  max_import_stop_soc:
+    name: "Maximum import stop SOC"
+    description: "Ceiling for the SOC at which grid charging stops."
+  max_power_watts:
+    name: "Maximum import power (W)"
+    description: "Import (charge from grid) power limit; also caps grid_buy_power_watts."
+  max_export_power_watts:
+    name: "Maximum export power (W)"
+    description: "Export power limit used when selling."
+  hot_water_kwh_per_deg_c:
+    name: "Hot water kWh per degree"
+    description: "Energy needed to raise the tank one degree."
+  solar_confidence:
+    name: "Solar confidence"
+    description: "Share of the Solcast forecast the planners trust (0.1-1)."
+  solar_forecast_tomorrow_entity:
+    name: "Solar forecast tomorrow"
+    description: "Optional. Solcast forecast for tomorrow (kWh)."
+  morning_solar_start_hour:
+    name: "Morning solar start hour"
+    description: "Hour when solar is assumed to take over from the battery."
+  average_load_kw:
+    name: "Average overnight load (kW)"
+    description: "Assumed home load overnight."
+  morning_load_kw:
+    name: "Morning load (kW)"
+    description: "Assumed home load in the morning before solar takes over."
+  ai_authority:
+    name: "AI authority"
+    description: "off: ignore AI levers. shadow: log only. on: apply within safe limits."
+  cheap_import_price:
+    name: "Cheap import price"
+    description: "Buy from the grid whenever the price is at or below this and the battery has room. 0 = off."
+  stretch_import_price:
+    name: "Stretch import price"
+    description: "Buy from the grid up to this price only when there is a shortfall. 0 = off."
+  grid_buy_power_watts:
+    name: "Grid buy power (W)"
+    description: "Charge power used when buying from the grid (capped by max_power_watts)."
+  look_ahead_buy_enabled:
+    name: "Look-ahead buy"
+    description: "Buy only the energy needed for tonight and tomorrow night, in the cheapest slots up to the stretch price."
+  look_ahead_buy_tolerance:
+    name: "Look-ahead tolerance"
+    description: "Buy now if the price is within this of the cheapest chosen slot ($/kWh)."
+  force_charge_target_soc:
+    name: "Force charge target SOC"
+    description: "Target SOC when force-charging from the grid."
+  price_watch_enabled:
+    name: "Price watcher"
+    description: "Poll live prices and run early when they move away from the forecast."
+  price_watch_shift_percent:
+    name: "Price shift trigger (%)"
+    description: "Percentage move versus forecast that triggers a run."
+  price_watch_min_shift:
+    name: "Minimum price shift ($)"
+    description: "Smallest absolute move that can trigger a run."
+  price_watch_cooldown_minutes:
+    name: "Price watcher cooldown (min)"
+    description: "Minimum minutes between price-triggered runs."
+  telemetry_sample_minutes:
+    name: "Telemetry sample (min)"
+    description: "How often history samples are stored. 0 = off."
+  report_days:
+    name: "Report days"
+    description: "Days of history shown in reports."
+  decision_log_retention_days:
+    name: "Decision log retention (days)"
+    description: "How long decisions are kept."
+  ev_power_entity:
+    name: "EV charging power sensor"
+    description: "Optional. Wallbox power, used for car awareness."
+  ev_subtract_from_load:
+    name: "Subtract EV from load"
+    description: "Remove car charging from the load in the dashboard projection."
+  ev_control_enabled:
+    name: "EV control"
+    description: "Let the add-on steer the Node-RED solar-grab threshold from the car priority."
+  ev_grab_threshold_entity:
+    name: "EV grab threshold helper"
+    description: "input_number the Node-RED flow reads."
+  ev_hold_offset_percent:
+    name: "EV hold offset (%)"
+    description: "How far the threshold is raised when the car should only take surplus solar."
+  ev_zero_feed_in_threshold_percent:
+    name: "EV zero feed-in threshold (%)"
+    description: "Threshold used when feed-in is zero or negative."
+  ev_hold_feed_in_price:
+    name: "EV hold feed-in price"
+    description: "Above this feed-in price the car is held back to export."
+  ev_soc_entity:
+    name: "EV SOC sensor"
+    description: "Optional. Car battery level in percent."
+  ev_charge_limit_entity:
+    name: "EV charge limit"
+    description: "Optional. Car charge limit number."
+  ev_priority_entity:
+    name: "EV priority helper"
+    description: "input_select with the car charging priority (Off, Nice to Have, Charge when you can, Must Charge)."
+  ev_plugged_in_entity:
+    name: "EV plugged-in sensor"
+    description: "Optional. Whether the car is plugged in."
+  ev_battery_kwh:
+    name: "EV battery (kWh)"
+    description: "Car battery capacity."
+  ev_hot_water_guard:
+    name: "EV hot water guard"
+    description: "Subtract car energy from the Full hot water check."
+  ev_assumed_charge_kw:
+    name: "EV assumed charge rate (kW)"
+    description: "Car charge rate assumed when planning."
+  ev_plenty_points:
+    name: "EV plenty points"
+    description: "SOC points above the conserve target that count as plenty of battery."
