@@ -58,6 +58,12 @@ public static class GridBuyPlanner
         return new GridBuyPlan(true, Up(maxImportPrice), target, 0, $"force charge on: charging to {K(target)}% at up to ${P(maxImportPrice)} (buy ${P(buy)})");
     }
 
+    /// <summary>Energy a car on Must Charge or Nice to Have needs beyond today's spare solar and the battery above the floor. Zero for "Charge when you can".</summary>
+    public static double CarShortfallKwh(double? carNeedKwh, EvPriority priority, double netSolarKwhUntil18, double storedKwh, double floorKwh) =>
+        carNeedKwh is double need && need > 0 && priority != EvPriority.WhenYouCan
+            ? Math.Max(0, need - Math.Max(0, netSolarKwhUntil18) - Math.Max(0, storedKwh - floorKwh))
+            : 0;
+
     public static GridBuyPlan Plan(GridBuyInput i)
     {
         double maxPrice = i.MaxImportPrice;

@@ -47,6 +47,8 @@ if [ -f "$OPTIONS_FILE" ]; then
   export Optimizer__CheapImportPrice=$(jq -r '.cheap_import_price // 0' "$OPTIONS_FILE")
   export Optimizer__StretchImportPrice=$(jq -r '.stretch_import_price // 0' "$OPTIONS_FILE")
   export Optimizer__ForceChargeTargetSoc=$(jq -r '.force_charge_target_soc // 90' "$OPTIONS_FILE")
+  export Optimizer__LookAheadBuyEnabled=$(jq -r 'if .look_ahead_buy_enabled == null then false else .look_ahead_buy_enabled end' "$OPTIONS_FILE")
+  export Optimizer__LookAheadBuyTolerance=$(jq -r '.look_ahead_buy_tolerance // 0.01' "$OPTIONS_FILE")
   export Optimizer__GridBuyPowerWatts=$(jq -r '.grid_buy_power_watts // 5000' "$OPTIONS_FILE")
   export Optimizer__AiAuthority=$(jq -r '.ai_authority // "shadow"' "$OPTIONS_FILE")
   export Optimizer__PriceWatchEnabled=$(jq -r 'if .price_watch_enabled == null then true else .price_watch_enabled end' "$OPTIONS_FILE")

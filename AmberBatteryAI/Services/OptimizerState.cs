@@ -122,6 +122,13 @@ public class OptimizerState
         }
     }
 
+    private DateTimeOffset? _nextBuyWindow;
+
+    /// <summary>When the grid buy plan next wants to buy (set by each run), so the price watcher can start a run then.</summary>
+    public DateTimeOffset? NextBuyWindow { get { lock (_lock) return _nextBuyWindow; } }
+
+    public void SetNextBuyWindow(DateTimeOffset? start) { lock (_lock) _nextBuyWindow = start; }
+
     public StatusSnapshot GetSnapshot()
     {
         lock (_lock)

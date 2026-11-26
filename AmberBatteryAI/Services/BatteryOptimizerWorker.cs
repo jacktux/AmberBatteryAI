@@ -417,6 +417,8 @@ public class BatteryOptimizerWorker(
             : null;
         string importMinStopSocText = importMinStopSoc is null ? "unknown" : SocPlanner.N(importMinStopSoc.Value);
 
+        bool lookAheadBuy = config.GetValue("Optimizer:LookAheadBuyEnabled", false);
+        double maxImportPriceOpt = config.GetValue("Optimizer:MaxImportPrice", 0.25);
         var gridBuyPlan = GridBuyPlan.No("not evaluated");
         if (floorParsed && importMinStopSoc is not null)
         {
@@ -425,9 +427,25 @@ public class BatteryOptimizerWorker(
                 double.TryParse(currentImportState, NumberStyles.Float, CultureInfo.InvariantCulture, out double buyNowForPlan) ? buyNowForPlan : null,
                 socNow, batteryCapacityKwh, floorKwhValue,
                 NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, hoursTo18, solarConfidence),
-                conservePercent, cheapImportPrice, stretchImportPrice,
+                conservePercent, cheapImportPrice, lookAheadBuy ? 0 : stretchImportPrice,
                 config.GetValue("Optimizer:MaxImportPrice", 0.25), config.GetValue("Optimizer:MaxImportStopSoc", 100.0),
                 car.NeedKwh, car.Priority));
+
+            // Look-ahead: buy only the energy that tonight and tomorrow night need, in the cheapest slots (the cheap price still buys as before).
+            if (lookAheadBuy)
+            {
+                double netSolarNow = NetSolarKwhUntil18(remainingSolarKwh, avgLoadKw, hoursTo18, solarConfidence);
+                var look = LookAheadBuyPlanner.Plan(new LookAheadBuyInput(
+                    DateTime.Now, socNow, batteryCapacityKwh, floorKwhValue, conservePercent, avgLoadKw, DaytimeLoadKw, morningLoadKw, solarConfidence, morningSolarStartHour,
+                    solarSlots, tomorrowImport,
+                    double.TryParse(currentImportState, NumberStyles.Float, CultureInfo.InvariantCulture, out double buyNowLook) ? buyNowLook : null,
+                    stretchImportPrice, maxImportPriceOpt, config.GetValue("Optimizer:MaxImportStopSoc", 100.0),
+                    config.GetValue("Optimizer:GridBuyPowerWatts", 5000.0) / 1000.0, config.GetValue("Optimizer:LookAheadBuyTolerance", 0.01),
+                    GridBuyPlanner.CarShortfallKwh(car.NeedKwh, car.Priority, netSolarNow, socNow / 100 * batteryCapacityKwh, floorKwhValue)));
+                if (!gridBuyPlan.Buy) gridBuyPlan = look.Plan;
+                state.SetNextBuyWindow(look.NextWindowStart is DateTime ws ? new DateTimeOffset(ws, TimeZoneInfo.Local.GetUtcOffset(ws)) : null);
+            }
+            else state.SetNextBuyWindow(null);
         }
         // Force grid charge: a switch and a target SOC, both helpers. It beats the cheap and stretch rules and the floor.
         string forceEntity = config["HomeAssistant:ForceChargeEntity"] ?? "input_boolean.force_grid_charge";
@@ -453,7 +471,7 @@ public class BatteryOptimizerWorker(
                 }
             }
         }
-        bool gridBuyEnabled = cheapImportPrice > 0 || stretchImportPrice > 0 || forceOn;
+        bool gridBuyEnabled = cheapImportPrice > 0 || stretchImportPrice > 0 || forceOn || lookAheadBuy;
 
         _pending = entry = entry with
         {

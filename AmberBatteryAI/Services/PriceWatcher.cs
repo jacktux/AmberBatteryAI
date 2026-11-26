@@ -102,6 +102,16 @@ public class PriceWatcher(
         double? liveFeedIn = await ReadPriceAsync(http, feedInEntity, ct);
         double? liveBuy = await ReadPriceAsync(http, buyEntity, ct);
 
+        // A planned grid buying window has started: run now instead of at the next 30-minute run.
+        if (state.NextBuyWindow is DateTimeOffset window && DateTimeOffset.Now >= window && lastRun < window && !state.IsRunning
+            && DateTimeOffset.UtcNow - lastRun.Value >= PriceWatchRules.CarCooldown && !await IsOffAsync(http, masterSwitch, ct))
+        {
+            logger.LogInformation("Price watcher triggers a run: a planned grid buy window started at {Start:HH:mm}.", window);
+            state.SetNextBuyWindow(null);
+            state.TriggerImmediateRun(RunTrigger.Price, $"the planned grid buying window starting {window.ToLocalTime():HH:mm} has begun");
+            return;
+        }
+
         double cheapPrice = await ReadPriceAsync(http, config["HomeAssistant:CheapImportPriceEntity"] ?? "input_number.cheap_import_price", ct)
             ?? config.GetValue("Optimizer:CheapImportPrice", 0.0);
         var cheap = PriceWatchRules.CheapReached(_previousBuy, liveBuy, cheapPrice, DateTimeOffset.UtcNow - lastRun.Value, state.IsRunning);

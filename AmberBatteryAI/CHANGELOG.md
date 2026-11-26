@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.22.0
+
+### Added
+- Look-ahead grid buying (`look_ahead_buy_enabled`, default off). Until now the stretch price only covered today's shortfall and no rule chose the cheapest slot. With this on, the system works out the energy the battery must buy to get through tonight (`floor_kWh` against what is stored, plus any car shortfall) and through tomorrow night (what the battery will hold at tomorrow's solar takeover, plus tomorrow's net Solcast solar with haircut and confidence, against what it needs at 18:00 tomorrow). It buys only that shortfall, not a full charge, and only in the cheapest 30-minute slots before it is needed (tonight's share before tomorrow's solar takeover, tomorrow night's share before tomorrow 18:00, so tomorrow's cheap midday slots count).
+- `stretch_import_price` is the price ceiling: it buys when there is a need and the chosen slots are at or under the ceiling; with no need it does not buy from this rule (the `cheap_import_price` rule still buys whenever the price is at or under it and there is room); with a need but every slot above the ceiling it does not buy and the notes say so ("the cheapest slot is $0.31, above the stretch price $0.18"), so you can raise it. The existing stretch rule is replaced while this is on. `max_import_price` still caps everything.
+- It buys now only when the current slot is one of the chosen slots, or the price is within `look_ahead_buy_tolerance` (default $0.01) of the cheapest chosen slot; otherwise the notes say when it is waiting for ("waiting for 11:00 (cheapest slots 11:00, 11:30, 12:00, 12:30, from $0.07)"). The price watcher starts a run when a chosen window starts, so it does not wait for the next 30-minute run.
+- The decision notes and `computed.grid_buy` show the plan, and the prompt gets a short GRID BUYING line. Charge targets are the energy bought plus 2 points, within `max_import_stop_soc`; the usual guards apply (master switch, $0.05 gap below the export price, feed-in spike).
+
+### Notes
+- It reads Amber's forecast for the buy price (about 48 hours), so tomorrow's cheap slots are estimates and are re-planned at every run.
+- Nothing changes unless `look_ahead_buy_enabled` is on and `stretch_import_price` is set.
 ## 1.20.1
 - Rollback to 1.19.0
 
